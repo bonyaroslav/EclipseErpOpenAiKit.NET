@@ -19,7 +19,7 @@ switch ($Command)
     }
     'run'
     {
-        dotnet run --project apps/Gateway.Functions/Gateway.Functions.csproj
+        dotnet run --project apps/Gateway.Functions/Gateway.Functions.csproj -p:RestoreUseStaticGraphEvaluation=true
     }
     'demo'
     {
@@ -39,6 +39,6 @@ switch ($Command)
     }
     'test'
     {
-        dotnet test EclipseErpOpenAiKit.NET.sln
+        dotnet test EclipseErpOpenAiKit.NET.sln -p:RestoreUseStaticGraphEvaluation=true
     }
 }
