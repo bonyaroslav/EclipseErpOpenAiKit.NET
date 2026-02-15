@@ -24,6 +24,7 @@ var app = builder.Build();
 
 app.MapPost("/api/chat", async (
     ChatRequest request,
+    HttpContext httpContext,
     IAiPlanner planner,
     IErpConnector erp,
     IRedactor redactor,
@@ -34,7 +35,8 @@ app.MapPost("/api/chat", async (
 {
     var logger = loggerFactory.CreateLogger("ChatEndpoint");
     var message = request?.Message ?? string.Empty;
-    var correlationId = Correlation.NewId();
+    var incomingCorrelationId = httpContext.Request.Headers["x-correlation-id"].FirstOrDefault();
+    var correlationId = Correlation.FromHeaderOrNew(incomingCorrelationId);
     using var correlationScope = CorrelationScope.Push(correlationId);
 
     var plannedCalls = planner.Plan(message);

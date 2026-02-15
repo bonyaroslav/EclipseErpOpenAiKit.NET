@@ -3,6 +3,11 @@ namespace EclipseAi.Observability;
 public static class Correlation
 {
     public static string NewId() => Guid.NewGuid().ToString("N");
+
+    public static string FromHeaderOrNew(string? incoming)
+    {
+        return string.IsNullOrWhiteSpace(incoming) ? NewId() : incoming.Trim();
+    }
 }
 
 public static class CorrelationScope

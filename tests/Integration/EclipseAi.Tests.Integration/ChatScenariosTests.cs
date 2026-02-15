@@ -66,9 +66,32 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
         Assert.Equal(response.CorrelationId, factory.FakeErp.OrderExceptionCorrelationIds.Single());
     }
 
-    private async Task<ChatApiResponse> PostChatAsync(string message)
+    [Fact]
+    public async Task IncomingCorrelationId_IsPropagatedToResponseAndErp()
     {
-        var httpResponse = await _client.PostAsJsonAsync("/api/chat", new { message });
+        const string inboundCorrelationId = "corr-from-client-123";
+        var response = await PostChatAsync(
+            "Do we have ITEM-123 in warehouse MAD? What's available and ETA?",
+            inboundCorrelationId);
+
+        Assert.Equal(inboundCorrelationId, response.CorrelationId);
+        Assert.Equal(inboundCorrelationId, factory.FakeErp.InventoryCorrelationIds.Last());
+        Assert.True(factory.AuditStore.Contains(inboundCorrelationId));
+    }
+
+    private async Task<ChatApiResponse> PostChatAsync(string message, string? correlationId = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
+        {
+            Content = JsonContent.Create(new { message })
+        };
+
+        if (!string.IsNullOrWhiteSpace(correlationId))
+        {
+            request.Headers.TryAddWithoutValidation("x-correlation-id", correlationId);
+        }
+
+        var httpResponse = await _client.SendAsync(request);
         httpResponse.EnsureSuccessStatusCode();
 
         var payload = await httpResponse.Content.ReadFromJsonAsync<JsonElement>();

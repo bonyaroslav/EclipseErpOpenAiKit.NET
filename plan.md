@@ -41,6 +41,7 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - audit payload redaction for sensitive nested fields
   - Correlation propagation implementation:
     - request correlation scope set in chat endpoint
+    - incoming `x-correlation-id` is honored when provided by client
     - ERP connector propagates `x-correlation-id` on outbound calls
     - integration assertions verify ERP execution sees request correlation ID
   - ERP HTTP-boundary checks:

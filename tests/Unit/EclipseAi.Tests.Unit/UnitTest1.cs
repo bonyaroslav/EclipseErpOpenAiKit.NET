@@ -127,6 +127,14 @@ public class GovernanceTests
 public class CorrelationTests
 {
     [Fact]
+    public void Correlation_FromHeaderOrNew_UsesIncomingHeaderWhenPresent()
+    {
+        var correlationId = Correlation.FromHeaderOrNew(" corr-client-1 ");
+
+        Assert.Equal("corr-client-1", correlationId);
+    }
+
+    [Fact]
     public void CorrelationScope_PushesAndRestoresCurrentId()
     {
         Assert.Null(CorrelationScope.Current);
