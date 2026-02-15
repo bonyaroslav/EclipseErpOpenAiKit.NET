@@ -415,7 +415,7 @@ public sealed class MutablePlanner : IAiPlanner
     }
 }
 
-public sealed class OpenAiModeOffBehaviorTests(OpenAiModeOffFactory factory) : IClassFixture<OpenAiModeOffFactory>
+public sealed class OpenAiModeOffBehaviorTests(OpenAiOffFactory factory) : IClassFixture<OpenAiOffFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();
 

@@ -10,3 +10,4 @@ obj/
 .azurite/
 local.settings.json
 .dotnet/
+.nuget/
