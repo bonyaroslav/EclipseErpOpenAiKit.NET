@@ -74,4 +74,30 @@ public class GovernanceTests
         Assert.Equal("[REDACTED]", redacted["customerName"]);
         Assert.Equal("MAD", redacted["warehouse"]);
     }
+
+    [Fact]
+    public void Redactor_RedactsSensitiveFieldNamesRecursively()
+    {
+        var redactor = new MapRedactor();
+        var payload = new Dictionary<string, object?>
+        {
+            ["toolCalls"] = new object[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["name"] = "CreateDraftSalesOrder",
+                    ["args"] = new Dictionary<string, object>
+                    {
+                        ["customerName"] = "Alice"
+                    }
+                }
+            }
+        };
+
+        var redacted = Assert.IsType<Dictionary<string, object?>>(redactor.Redact(payload));
+        var toolCalls = Assert.IsType<object[]>(redacted["toolCalls"]);
+        var firstCall = Assert.IsType<Dictionary<string, object?>>(toolCalls[0]);
+        var args = Assert.IsType<Dictionary<string, object?>>(firstCall["args"]);
+        Assert.Equal("[REDACTED]", args["customerName"]);
+    }
 }

@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using EclipseAi.AI;
 using EclipseAi.Connectors.Erp;
+using EclipseAi.Domain;
 using Gateway.Functions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -218,6 +220,130 @@ public sealed class InMemoryAuditStore : IAuditStore
         lock (_gate)
         {
             return _records.ContainsKey(correlationId);
+        }
+    }
+
+    public object? Get(string correlationId)
+    {
+        lock (_gate)
+        {
+            return _records.TryGetValue(correlationId, out var payload) ? payload : null;
+        }
+    }
+}
+
+public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : IClassFixture<PolicyChatApiFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task UnknownTool_IsSkipped_AndNoErpCallIsExecuted()
+    {
+        factory.Planner.SetCalls(new ToolCall("DeleteAllOrders", new Dictionary<string, object>()));
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("No eligible tool call was executed.", payload.GetProperty("answer").GetString());
+        Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
+        Assert.Equal(0, factory.FakeErp.InventoryCallCount + factory.FakeErp.DraftCreateCount + factory.FakeErp.OrderExceptionCallCount);
+    }
+
+    [Fact]
+    public async Task DraftWithoutIdempotency_IsBlockedByPolicy()
+    {
+        var calls = new[]
+        {
+            new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
+            {
+                ["customerId"] = "ACME",
+                ["shipDate"] = "2030-01-01",
+                ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+            })
+        };
+
+        factory.Planner.SetCalls(calls);
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("No eligible tool call was executed.", payload.GetProperty("answer").GetString());
+        Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
+        Assert.Equal(0, factory.FakeErp.DraftCreateCount);
+    }
+
+    [Fact]
+    public async Task AuditPayload_RedactsSensitiveNestedFields()
+    {
+        var calls = new[]
+        {
+            new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
+            {
+                ["customerId"] = "ACME",
+                ["customerName"] = "Alice Sensitive",
+                ["shipDate"] = "2030-01-01",
+                ["idempotencyKey"] = "idem-audit-redact-001",
+                ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+            })
+        };
+
+        factory.Planner.SetCalls(calls);
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var correlationId = payload.GetProperty("correlationId").GetString()!;
+
+        var auditPayload = Assert.IsType<Dictionary<string, object?>>(factory.AuditStore.Get(correlationId));
+        var auditJson = JsonSerializer.Serialize(auditPayload);
+
+        Assert.DoesNotContain("Alice Sensitive", auditJson, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", auditJson, StringComparison.Ordinal);
+    }
+}
+
+public sealed class PolicyChatApiFactory : WebApplicationFactory<Program>
+{
+    public MutablePlanner Planner { get; } = new();
+    public FakeErpConnector FakeErp { get; } = new();
+    public InMemoryAuditStore AuditStore { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Development");
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAiPlanner>();
+            services.RemoveAll<IErpConnector>();
+            services.RemoveAll<IAuditStore>();
+            services.AddSingleton(Planner);
+            services.AddSingleton<IAiPlanner>(sp => sp.GetRequiredService<MutablePlanner>());
+            services.AddSingleton<IErpConnector>(FakeErp);
+            services.AddSingleton<IAuditStore>(AuditStore);
+        });
+    }
+}
+
+public sealed class MutablePlanner : IAiPlanner
+{
+    private readonly object _gate = new();
+    private IReadOnlyList<ToolCall> _calls = Array.Empty<ToolCall>();
+
+    public IReadOnlyList<ToolCall> Plan(string message)
+    {
+        lock (_gate)
+        {
+            return _calls;
+        }
+    }
+
+    public void SetCalls(IReadOnlyList<ToolCall> calls)
+    {
+        lock (_gate)
+        {
+            _calls = calls;
         }
     }
 }
