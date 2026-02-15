@@ -133,10 +133,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
     private static void CleanupIdempotencyStore()
     {
         var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
-        if (Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: true);
-        }
+        TestDirectoryCleanup.DeleteWithRetries(directory);
     }
 
     private sealed record ChatApiResponse(
@@ -499,6 +496,32 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     private static void CleanupIdempotencyStore()
     {
         var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
+        TestDirectoryCleanup.DeleteWithRetries(directory);
+    }
+}
+
+internal static class TestDirectoryCleanup
+{
+    public static void DeleteWithRetries(string directory, int maxAttempts = 5, int delayMs = 50)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (!Directory.Exists(directory))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+                return;
+            }
+            catch (IOException) when (attempt < maxAttempts)
+            {
+                Thread.Sleep(delayMs);
+            }
+        }
+
         if (Directory.Exists(directory))
         {
             Directory.Delete(directory, recursive: true);
