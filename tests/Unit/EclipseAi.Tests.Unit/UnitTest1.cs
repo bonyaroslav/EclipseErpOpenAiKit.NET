@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using EclipseAi.AI;
 using EclipseAi.Connectors.Erp;
+using EclipseAi.Domain;
 using EclipseAi.Governance;
 using EclipseAi.Observability;
 
@@ -12,17 +13,55 @@ public class PlannerTests
     [Fact]
     public void PlannerFactory_WithoutApiKey_UsesFakePlanner()
     {
-        var planner = PlannerFactory.Create(openAiApiKey: null);
+        var planner = PlannerFactory.Create(openAiApiKey: null, openAiMode: "real");
 
         Assert.IsType<FakePlanner>(planner);
     }
 
     [Fact]
-    public void PlannerFactory_WithApiKey_UsesOpenAiPlannerEmulation()
+    public void PlannerFactory_WithApiKey_EmulatedMode_UsesOpenAiPlanner()
     {
-        var planner = PlannerFactory.Create(openAiApiKey: "demo-key");
+        var planner = PlannerFactory.Create(openAiApiKey: "demo-key", openAiMode: "emulated");
 
         Assert.IsType<OpenAiPlanner>(planner);
+        var call = Assert.Single(planner.Plan("Do we have ITEM-123 in warehouse MAD?"));
+        Assert.Equal("GetInventoryAvailability", call.Name);
+    }
+
+    [Fact]
+    public void PlannerFactory_WithApiKey_OffMode_UsesFakePlanner()
+    {
+        var planner = PlannerFactory.Create(openAiApiKey: "demo-key", openAiMode: "off");
+
+        Assert.IsType<FakePlanner>(planner);
+    }
+
+    [Fact]
+    public void OpenAiPlanner_RealMode_UsesOpenAiClientToolCalls()
+    {
+        var client = new StubOpenAiClient(
+            [new ToolCall("GetInventoryAvailability", new Dictionary<string, object> { ["itemId"] = "ITEM-777", ["warehouseId"] = "DAL" })]);
+        var planner = PlannerFactory.Create(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            openAiClient: client,
+            fallbackPlanner: new FakePlanner());
+
+        var call = Assert.Single(planner.Plan("any"));
+        Assert.Equal("GetInventoryAvailability", call.Name);
+        Assert.Equal("ITEM-777", call.Args["itemId"]);
+        Assert.Equal("DAL", call.Args["warehouseId"]);
+    }
+
+    [Fact]
+    public void OpenAiPlanner_RealMode_FallsBackWhenClientFails()
+    {
+        var planner = PlannerFactory.Create(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            openAiClient: new ThrowingOpenAiClient(),
+            fallbackPlanner: new FakePlanner());
+
         var call = Assert.Single(planner.Plan("Do we have ITEM-123 in warehouse MAD?"));
         Assert.Equal("GetInventoryAvailability", call.Name);
     }
@@ -235,5 +274,21 @@ public class ErpConnectorTests
             _requests.Add(request);
             return Task.FromResult(_responder(request));
         }
+    }
+}
+
+internal sealed class StubOpenAiClient(IReadOnlyList<ToolCall> calls) : IOpenAiClient
+{
+    public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
+    {
+        return Task.FromResult(calls);
+    }
+}
+
+internal sealed class ThrowingOpenAiClient : IOpenAiClient
+{
+    public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
+    {
+        throw new InvalidOperationException("simulated openai failure");
     }
 }

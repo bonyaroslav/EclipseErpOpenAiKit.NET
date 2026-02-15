@@ -46,6 +46,9 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - integration assertions verify ERP execution sees request correlation ID
   - ERP HTTP-boundary checks:
     - unit tests verify `HttpErpConnector` sends `x-correlation-id` for inventory, draft order, and order exception requests
+  - OpenAI optional mode gate:
+    - `OPENAI_MODE` supports `off|emulated|real`
+    - `real` mode uses OpenAI planner client path with deterministic fallback on failure
 
 - Next:
   - Replace emulated OpenAI planner path with real tool/function-calling implementation behind configuration, while preserving deterministic offline default.

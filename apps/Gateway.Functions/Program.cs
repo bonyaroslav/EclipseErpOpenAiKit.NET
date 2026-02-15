@@ -10,7 +10,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IAiPlanner>(_ =>
 {
     var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-    return PlannerFactory.Create(openAiApiKey);
+    var openAiMode = Environment.GetEnvironmentVariable("OPENAI_MODE");
+    return PlannerFactory.Create(openAiApiKey, openAiMode);
 });
 builder.Services.AddSingleton<IRedactor, MapRedactor>();
 builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>

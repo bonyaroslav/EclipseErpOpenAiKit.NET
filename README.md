@@ -69,6 +69,12 @@ Every `/api/chat` response returns:
 
 ```powershell
 $env:OPENAI_API_KEY = "your-key"
+$env:OPENAI_MODE = "emulated" # default
 ```
 
-If key is not set, offline mode remains active.
+Modes:
+- `OPENAI_MODE=emulated` (default): OpenAI planner path enabled but deterministically emulated for demo/offline stability.
+- `OPENAI_MODE=real`: OpenAI planner uses tool/function-calling HTTP path and falls back to deterministic planner on failure.
+- `OPENAI_MODE=off`: forces deterministic offline planner.
+
+If key is not set, offline mode remains active regardless of mode.
