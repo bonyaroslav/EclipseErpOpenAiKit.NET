@@ -43,7 +43,8 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - request correlation scope set in chat endpoint
     - ERP connector propagates `x-correlation-id` on outbound calls
     - integration assertions verify ERP execution sees request correlation ID
+  - ERP HTTP-boundary checks:
+    - unit tests verify `HttpErpConnector` sends `x-correlation-id` for inventory, draft order, and order exception requests
 
 - Next:
-  - Add host-level test that validates `x-correlation-id` is physically present at mock ERP HTTP boundary.
   - Replace emulated OpenAI planner path with real tool/function-calling implementation behind configuration, while preserving deterministic offline default.
