@@ -223,6 +223,14 @@ public class CorrelationTests
     }
 
     [Fact]
+    public void Correlation_FromHeaderOrNew_InvalidHeader_GeneratesNewId()
+    {
+        var correlationId = Correlation.FromHeaderOrNew("../evil");
+
+        Assert.Matches("^[a-f0-9]{32}$", correlationId);
+    }
+
+    [Fact]
     public void CorrelationScope_PushesAndRestoresCurrentId()
     {
         Assert.Null(CorrelationScope.Current);

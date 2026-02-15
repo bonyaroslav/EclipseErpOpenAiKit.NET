@@ -36,6 +36,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
     [Fact]
     public async Task DraftSalesOrderScenario_IsIdempotentForSamePlannerKey()
     {
+        CleanupIdempotencyStore();
         var firstResponse = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
         var secondResponse = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
 
@@ -126,6 +127,15 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
         foreach (var expectedPath in expectedPaths)
         {
             Assert.Contains(expectedPath, actualPaths);
+        }
+    }
+
+    private static void CleanupIdempotencyStore()
+    {
+        var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -337,6 +347,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task DraftWithoutIdempotency_IsBlockedByPolicy()
     {
+        CleanupIdempotencyStore();
         factory.FakeErp.Reset();
         var calls = new[]
         {
@@ -362,6 +373,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task DraftWithSameIdempotencyKeyDifferentPayload_IsBlocked()
     {
+        CleanupIdempotencyStore();
         factory.FakeErp.Reset();
         var idempotencyKey = $"idem-conflict-{Guid.NewGuid():N}";
         var firstCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
@@ -395,6 +407,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task AuditPayload_RedactsSensitiveNestedFields()
     {
+        CleanupIdempotencyStore();
         factory.FakeErp.Reset();
         var calls = new[]
         {
@@ -420,6 +433,15 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
 
         Assert.DoesNotContain("Alice Sensitive", auditJson, StringComparison.Ordinal);
         Assert.Contains("[REDACTED]", auditJson, StringComparison.Ordinal);
+    }
+
+    private static void CleanupIdempotencyStore()
+    {
+        var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }
 

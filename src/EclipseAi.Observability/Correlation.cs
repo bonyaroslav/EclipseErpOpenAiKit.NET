@@ -1,13 +1,36 @@
+using System.Text.RegularExpressions;
+
 namespace EclipseAi.Observability;
 
-public static class Correlation
+public static partial class Correlation
 {
+    private static readonly Regex s_allowed = AllowedRegex();
+
     public static string NewId() => Guid.NewGuid().ToString("N");
 
     public static string FromHeaderOrNew(string? incoming)
     {
-        return string.IsNullOrWhiteSpace(incoming) ? NewId() : incoming.Trim();
+        if (string.IsNullOrWhiteSpace(incoming))
+        {
+            return NewId();
+        }
+
+        var trimmed = incoming.Trim();
+        return IsValid(trimmed) ? trimmed : NewId();
     }
+
+    public static string ToSafeFileName(string correlationId)
+    {
+        return IsValid(correlationId) ? correlationId : NewId();
+    }
+
+    private static bool IsValid(string value)
+    {
+        return s_allowed.IsMatch(value);
+    }
+
+    [GeneratedRegex("^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", RegexOptions.Compiled)]
+    private static partial Regex AllowedRegex();
 }
 
 public static class CorrelationScope

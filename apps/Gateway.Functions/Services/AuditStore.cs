@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using EclipseAi.Connectors.Erp;
+using EclipseAi.Observability;
 
 namespace Gateway.Functions;
 
@@ -23,7 +24,8 @@ public sealed class FileAuditStore : IAuditStore
         var directory = Path.Combine(Directory.GetCurrentDirectory(), ".audit");
         Directory.CreateDirectory(directory);
 
-        var filePath = Path.Combine(directory, $"{correlationId}.json");
+        var safeCorrelationId = Correlation.ToSafeFileName(correlationId);
+        var filePath = Path.Combine(directory, $"{safeCorrelationId}.json");
         var json = JsonSerializer.Serialize(payload, s_jsonOptions);
         await File.WriteAllTextAsync(filePath, json, ct);
     }
