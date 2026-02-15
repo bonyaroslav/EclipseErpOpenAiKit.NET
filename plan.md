@@ -10,6 +10,11 @@ A new user can clone this repo on Windows 11 and run a deterministic end-to-end 
 - No OpenAI key required (offline `FakePlanner`).
 - Optional OpenAI mode via `OPENAI_API_KEY`.
 
+## Current phase (2026-02-15)
+
+- Active scope: documentation cleanup and plan/status alignment only.
+- All non-documentation engineering work is on hold until explicitly resumed.
+
 ## Scenarios (E2E)
 
 1. Inventory availability (read)
@@ -57,4 +62,12 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - `OPENAI_SUMMARIZE=1` + real mode validated with deterministic OpenAI client double
 
 - Next:
-  - Run full `dotnet test` and `dev.ps1 demo` on a machine with working restore/auth, then close any regressions.
+  - On hold:
+    - Host migration to Azure Functions (.NET isolated) to align implementation with target architecture.
+    - Governance hardening so redaction/allowlist applies before any AI summarization call.
+    - Order exception response enrichment with explicit "next actions".
+    - Cleanup of unused placeholder classes/files.
+  - Resume checks once engineering work restarts:
+    - Run full `dotnet test`.
+    - Run `dev.ps1 demo`.
+    - Close any regressions against MVP acceptance criteria.

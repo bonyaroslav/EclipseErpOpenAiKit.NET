@@ -7,6 +7,7 @@ using EclipseAi.Observability;
 using Gateway.Functions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -265,6 +266,21 @@ public sealed class FakeErpConnector : IErpConnector
 
         return Task.FromResult(new OrderExceptionContextDto(orderId, "BACKORDER_HOLD_AR", data));
     }
+
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            InventoryCallCount = 0;
+            DraftCreateCount = 0;
+            OrderExceptionCallCount = 0;
+            _inventoryRequests.Clear();
+            _orderExceptionRequests.Clear();
+            _inventoryCorrelationIds.Clear();
+            _draftCorrelationIds.Clear();
+            _orderExceptionCorrelationIds.Clear();
+        }
+    }
 }
 
 public sealed class InMemoryAuditStore : IAuditStore
@@ -306,7 +322,8 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task UnknownTool_IsSkipped_AndNoErpCallIsExecuted()
     {
-        factory.Planner.SetCalls(new ToolCall("DeleteAllOrders", new Dictionary<string, object>()));
+        factory.FakeErp.Reset();
+        factory.Planner.SetCalls(new[] { new ToolCall("DeleteAllOrders", new Dictionary<string, object>()) });
 
         var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
         response.EnsureSuccessStatusCode();
@@ -320,6 +337,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task DraftWithoutIdempotency_IsBlockedByPolicy()
     {
+        factory.FakeErp.Reset();
         var calls = new[]
         {
             new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
@@ -344,6 +362,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task AuditPayload_RedactsSensitiveNestedFields()
     {
+        factory.FakeErp.Reset();
         var calls = new[]
         {
             new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
@@ -380,7 +399,7 @@ public sealed class PolicyChatApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
-        builder.ConfigureServices(services =>
+        builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IAiPlanner>();
             services.RemoveAll<IErpConnector>();

@@ -1,6 +1,8 @@
 # EclipseErpOpenAiKit.NET
 
-A minimal, production-shaped Epicor Eclipse ERP to OpenAI integration kit for .NET 10, hosted on Azure Functions (isolated).
+A minimal, production-shaped Epicor Eclipse ERP to OpenAI integration kit for .NET 10.
+
+Current host is ASP.NET Core minimal API for local MVP flow. Azure Functions (.NET 10 isolated) remains the primary target but is currently on hold.
 
 > Not affiliated with Epicor. "Epicor Eclipse" is a trademark of Epicor.
 
@@ -37,6 +39,16 @@ Most ERP + AI demos stop at prompts. This kit focuses on production-shaped funda
 1. Inventory availability (read)
 2. Draft sales order (draft-only with idempotency)
 3. Order exception copilot (summary, reasons with evidence, next actions)
+
+## Current status
+
+- Active work right now: documentation cleanup and status alignment.
+- Engineering changes are on hold.
+- On-hold backlog:
+  - Host migration to Azure Functions (.NET isolated)
+  - Governance hardening before AI summarization calls
+  - Explicit "next actions" enrichment in order-exception response
+  - Removal of unused placeholder code files
 
 ## Stable response contract
 

@@ -18,3 +18,7 @@ Rules: allowlist + idempotency required + draft-only
 Input: "Why is SO-456 delayed and what should I do?"
 ERP calls: `/salesOrders/{id}`, `/holds`, `/lines`, `/inventory`, `/customers/{id}/arSummary`
 Output: summary + reasons (with evidence) + next actions + optional draft customer message
+
+Current MVP implementation note:
+- The running MVP currently uses a consolidated endpoint (`GET /orderException/{orderId}`) for this scenario.
+- Multi-endpoint expansion remains on hold.

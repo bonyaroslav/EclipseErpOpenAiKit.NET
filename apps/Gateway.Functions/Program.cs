@@ -4,18 +4,19 @@ using EclipseAi.Domain;
 using EclipseAi.Governance;
 using EclipseAi.Observability;
 using Gateway.Functions;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
-builder.Services.AddSingleton<IAiPlanner>(sp =>
+builder.Services.TryAddSingleton<IAiPlanner>(sp =>
 {
     var openAiApiKey = config["OPENAI_API_KEY"];
     var openAiMode = config["OPENAI_MODE"];
     var openAiClient = sp.GetService<IOpenAiClient>();
     return PlannerFactory.Create(openAiApiKey, openAiMode, openAiClient);
 });
-builder.Services.AddSingleton<IOrderExceptionSummarizer>(sp =>
+builder.Services.TryAddSingleton<IOrderExceptionSummarizer>(sp =>
 {
     var openAiApiKey = config["OPENAI_API_KEY"];
     var openAiMode = config["OPENAI_MODE"];
@@ -23,7 +24,7 @@ builder.Services.AddSingleton<IOrderExceptionSummarizer>(sp =>
     var openAiClient = sp.GetService<IOpenAiClient>();
     return PlannerFactory.CreateSummarizer(openAiApiKey, openAiMode, enableSummarization, openAiClient);
 });
-builder.Services.AddSingleton<IRedactor, MapRedactor>();
+builder.Services.TryAddSingleton<IRedactor, MapRedactor>();
 builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
 {
     http.BaseAddress = new Uri("http://localhost:5080");
@@ -143,12 +144,28 @@ app.MapPost("/api/chat", async (
         evidence,
         $".audit/{correlationId}.json");
 
+    var auditToolCalls = response.ToolCalls
+        .Select(static call => new Dictionary<string, object?>
+        {
+            ["name"] = call.Name,
+            ["args"] = call.Args
+        })
+        .ToArray();
+    var auditEvidence = response.Evidence
+        .Select(static item => new Dictionary<string, object?>
+        {
+            ["source"] = item.Source,
+            ["path"] = item.Path,
+            ["value"] = item.Value
+        })
+        .ToArray();
+
     var redactedPayload = redactor.Redact(new Dictionary<string, object?>
     {
         ["correlationId"] = response.CorrelationId,
         ["answer"] = response.Answer,
-        ["toolCalls"] = response.ToolCalls,
-        ["evidence"] = response.Evidence,
+        ["toolCalls"] = auditToolCalls,
+        ["evidence"] = auditEvidence,
         ["auditRef"] = response.AuditRef
     });
 
@@ -161,8 +178,6 @@ app.MapPost("/api/chat", async (
 app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 app.Run();
-
-public partial class Program;
 
 static CreateDraftOrderDto BuildDraftRequest(IReadOnlyDictionary<string, object> args)
 {
@@ -200,3 +215,5 @@ static bool IsAllowlistedEvidenceField(string field)
 {
     return field is "holds" or "backorderedSkus" or "arOverdueDays" or "warehouse";
 }
+
+public partial class Program;
