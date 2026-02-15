@@ -7,6 +7,7 @@ using EclipseAi.Observability;
 using Gateway.Functions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -411,5 +412,117 @@ public sealed class MutablePlanner : IAiPlanner
         {
             _calls = calls;
         }
+    }
+}
+
+public sealed class OpenAiModeOffBehaviorTests(OpenAiModeOffFactory factory) : IClassFixture<OpenAiModeOffFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task OpenAiModeOff_UsesDeterministicPlannerFlow()
+    {
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "Do we have ITEM-123 in warehouse MAD?" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("GetInventoryAvailability", payload.GetProperty("toolCalls")[0].GetProperty("name").GetString());
+        Assert.Contains("ITEM-123", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, factory.FakeErp.InventoryCallCount);
+    }
+}
+
+public sealed class OpenAiSummaryBehaviorTests(OpenAiSummaryFactory factory) : IClassFixture<OpenAiSummaryFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task OpenAiSummarizeEnabled_UsesInjectedDeterministicSummary()
+    {
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "Why is SO-456 delayed and what should I do?" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Contains("AI summary deterministic", payload.GetProperty("answer").GetString(), StringComparison.Ordinal);
+        Assert.Equal(1, factory.FakeErp.OrderExceptionCallCount);
+        Assert.Equal("SO-456", factory.FakeErp.OrderExceptionRequests.Single());
+    }
+}
+
+public sealed class OpenAiOffFactory : WebApplicationFactory<Program>
+{
+    public FakeErpConnector FakeErp { get; } = new();
+    public InMemoryAuditStore AuditStore { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["OPENAI_API_KEY"] = "demo-key",
+                ["OPENAI_MODE"] = "off",
+                ["OPENAI_SUMMARIZE"] = "1"
+            });
+        });
+
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IErpConnector>();
+            services.RemoveAll<IAuditStore>();
+            services.AddSingleton<IErpConnector>(FakeErp);
+            services.AddSingleton<IAuditStore>(AuditStore);
+        });
+    }
+}
+
+public sealed class OpenAiSummaryFactory : WebApplicationFactory<Program>
+{
+    public FakeErpConnector FakeErp { get; } = new();
+    public InMemoryAuditStore AuditStore { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["OPENAI_API_KEY"] = "demo-key",
+                ["OPENAI_MODE"] = "real",
+                ["OPENAI_SUMMARIZE"] = "1"
+            });
+        });
+
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IErpConnector>();
+            services.RemoveAll<IAuditStore>();
+            services.RemoveAll<IOpenAiClient>();
+            services.AddSingleton<IErpConnector>(FakeErp);
+            services.AddSingleton<IAuditStore>(AuditStore);
+            services.AddSingleton<IOpenAiClient>(new DeterministicOpenAiClient(
+                [new ToolCall("ExplainOrderException", new Dictionary<string, object> { ["orderId"] = "SO-456" })],
+                "AI summary deterministic"));
+        });
+    }
+}
+
+public sealed class DeterministicOpenAiClient(IReadOnlyList<ToolCall> calls, string summary) : IOpenAiClient
+{
+    public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
+    {
+        return Task.FromResult(calls);
+    }
+
+    public Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
+    {
+        return Task.FromResult<string?>(summary);
     }
 }

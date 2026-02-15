@@ -6,19 +6,22 @@ using EclipseAi.Observability;
 using Gateway.Functions;
 
 var builder = WebApplication.CreateBuilder(args);
+var config = builder.Configuration;
 
-builder.Services.AddSingleton<IAiPlanner>(_ =>
+builder.Services.AddSingleton<IAiPlanner>(sp =>
 {
-    var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-    var openAiMode = Environment.GetEnvironmentVariable("OPENAI_MODE");
-    return PlannerFactory.Create(openAiApiKey, openAiMode);
+    var openAiApiKey = config["OPENAI_API_KEY"];
+    var openAiMode = config["OPENAI_MODE"];
+    var openAiClient = sp.GetService<IOpenAiClient>();
+    return PlannerFactory.Create(openAiApiKey, openAiMode, openAiClient);
 });
-builder.Services.AddSingleton<IOrderExceptionSummarizer>(_ =>
+builder.Services.AddSingleton<IOrderExceptionSummarizer>(sp =>
 {
-    var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-    var openAiMode = Environment.GetEnvironmentVariable("OPENAI_MODE");
-    var enableSummarization = string.Equals(Environment.GetEnvironmentVariable("OPENAI_SUMMARIZE"), "1", StringComparison.OrdinalIgnoreCase);
-    return PlannerFactory.CreateSummarizer(openAiApiKey, openAiMode, enableSummarization);
+    var openAiApiKey = config["OPENAI_API_KEY"];
+    var openAiMode = config["OPENAI_MODE"];
+    var enableSummarization = string.Equals(config["OPENAI_SUMMARIZE"], "1", StringComparison.OrdinalIgnoreCase);
+    var openAiClient = sp.GetService<IOpenAiClient>();
+    return PlannerFactory.CreateSummarizer(openAiApiKey, openAiMode, enableSummarization, openAiClient);
 });
 builder.Services.AddSingleton<IRedactor, MapRedactor>();
 builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>

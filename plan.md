@@ -52,6 +52,9 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
   - Optional summarization:
     - `OPENAI_SUMMARIZE=1` enables order exception summary path
     - real mode summary uses OpenAI client with deterministic fallback on errors
+  - Integration coverage for AI mode gates:
+    - `OPENAI_MODE=off` scenario validated with deterministic doubles
+    - `OPENAI_SUMMARIZE=1` + real mode validated with deterministic OpenAI client double
 
 - Next:
-  - Add integration coverage for `OPENAI_MODE=off` and incoming `OPENAI_SUMMARIZE=1` behavior using deterministic test doubles.
+  - Run full `dotnet test` and `dev.ps1 demo` on a machine with working restore/auth, then close any regressions.
