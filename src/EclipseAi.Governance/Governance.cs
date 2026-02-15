@@ -2,32 +2,52 @@ namespace EclipseAi.Governance;
 
 public static class ToolPolicy
 {
+    private const string DraftSalesOrderTool = "CreateDraftSalesOrder";
+    private const string IdempotencyKeyField = "idempotencyKey";
+
     private static readonly HashSet<string> s_allowlist = new(StringComparer.OrdinalIgnoreCase)
     {
         "GetInventoryAvailability",
-        "CreateDraftSalesOrder",
+        DraftSalesOrderTool,
         "ExplainOrderException"
     };
 
-    public static bool IsAllowed(string toolName)
-    {
-        return s_allowlist.Contains(toolName);
-    }
+    public static bool IsAllowed(string toolName) => s_allowlist.Contains(toolName);
 
     public static bool IsDraftWriteAllowed(string toolName, IReadOnlyDictionary<string, object> args)
     {
-        if (!toolName.Equals("CreateDraftSalesOrder", StringComparison.OrdinalIgnoreCase))
+        if (!IsDraftWriteTool(toolName))
         {
             return true;
         }
 
-        if (!args.TryGetValue("idempotencyKey", out var idempotencyValue))
+        return TryGetNonEmptyString(args, IdempotencyKeyField, out _);
+    }
+
+    private static bool IsDraftWriteTool(string toolName)
+    {
+        return toolName.Equals(DraftSalesOrderTool, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetNonEmptyString(
+        IReadOnlyDictionary<string, object> args,
+        string key,
+        out string value)
+    {
+        value = string.Empty;
+        if (!args.TryGetValue(key, out var raw))
         {
             return false;
         }
 
-        var idempotencyKey = idempotencyValue?.ToString();
-        return !string.IsNullOrWhiteSpace(idempotencyKey);
+        var text = raw?.ToString();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        value = text;
+        return true;
     }
 }
 
@@ -43,39 +63,32 @@ public sealed class NoopRedactor : IRedactor
 
 public sealed class MapRedactor : IRedactor
 {
-    private static readonly string[] SensitiveTokens =
+    private const string RedactedValue = "[REDACTED]";
+    private static readonly string[] s_sensitiveTokens =
     {
         "pii", "margin", "cost", "price", "email", "phone", "name"
     };
 
-    public object Redact(object input)
+    public object Redact(object input) => RedactCore(input)!;
+
+    private static object? RedactCore(object? value)
     {
-        if (input is IReadOnlyDictionary<string, object> roMapObj)
+        if (value is null)
         {
-            return RedactMap(roMapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value)));
+            return null;
         }
 
-        if (input is IReadOnlyDictionary<string, object?> roMap)
+        if (TryGetMapEntries(value, out var mapEntries))
         {
-            return RedactMap(roMap);
+            return RedactMap(mapEntries);
         }
 
-        if (input is IDictionary<string, object> mapObj)
+        if (TryGetSequence(value, out var sequence))
         {
-            return RedactMap(mapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value)));
+            return sequence.Select(RedactCore).ToArray();
         }
 
-        if (input is IDictionary<string, object?> map)
-        {
-            return RedactMap(map);
-        }
-
-        if (input is IEnumerable<object?> sequence && input is not string)
-        {
-            return sequence.Select(RedactUnknown).ToArray();
-        }
-
-        return input;
+        return value;
     }
 
     private static Dictionary<string, object?> RedactMap(IEnumerable<KeyValuePair<string, object?>> map)
@@ -83,50 +96,57 @@ public sealed class MapRedactor : IRedactor
         var output = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in map)
         {
-            output[kvp.Key] = IsSensitive(kvp.Key) ? "[REDACTED]" : RedactUnknown(kvp.Value);
+            output[kvp.Key] = IsSensitive(kvp.Key) ? RedactedValue : RedactCore(kvp.Value);
         }
 
         return output;
     }
 
-    private static object? RedactUnknown(object? value)
+    private static bool TryGetMapEntries(object value, out IEnumerable<KeyValuePair<string, object?>> mapEntries)
     {
-        if (value is null)
-        {
-            return null;
-        }
-
         if (value is IReadOnlyDictionary<string, object?> roMap)
         {
-            return RedactMap(roMap);
+            mapEntries = roMap;
+            return true;
         }
 
         if (value is IReadOnlyDictionary<string, object> roMapObj)
         {
-            return RedactMap(roMapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value)));
+            mapEntries = roMapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value));
+            return true;
         }
 
         if (value is IDictionary<string, object?> map)
         {
-            return RedactMap(map);
+            mapEntries = map;
+            return true;
         }
 
         if (value is IDictionary<string, object> mapObj)
         {
-            return RedactMap(mapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value)));
+            mapEntries = mapObj.Select(static kvp => new KeyValuePair<string, object?>(kvp.Key, kvp.Value));
+            return true;
         }
 
-        if (value is IEnumerable<object?> sequence && value is not string)
+        mapEntries = Array.Empty<KeyValuePair<string, object?>>();
+        return false;
+    }
+
+    private static bool TryGetSequence(object value, out IEnumerable<object?> sequence)
+    {
+        if (value is IEnumerable<object?> objectSequence && value is not string)
         {
-            return sequence.Select(RedactUnknown).ToArray();
+            sequence = objectSequence;
+            return true;
         }
 
-        return value;
+        sequence = Array.Empty<object?>();
+        return false;
     }
 
     private static bool IsSensitive(string key)
     {
-        foreach (var token in SensitiveTokens)
+        foreach (var token in s_sensitiveTokens)
         {
             if (key.Contains(token, StringComparison.OrdinalIgnoreCase))
             {
