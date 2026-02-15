@@ -75,6 +75,14 @@ public class PlannerTests
     }
 
     [Fact]
+    public void SummarizerFactory_OffMode_ReturnsNoop()
+    {
+        var summarizer = PlannerFactory.CreateSummarizer(openAiApiKey: "demo-key", openAiMode: "off", enableSummarization: true);
+
+        Assert.IsType<NoopOrderExceptionSummarizer>(summarizer);
+    }
+
+    [Fact]
     public void SummarizerFactory_EmulatedMode_ReturnsDeterministicSummarizer()
     {
         var summarizer = PlannerFactory.CreateSummarizer(openAiApiKey: "demo-key", openAiMode: "emulated", enableSummarization: true);
