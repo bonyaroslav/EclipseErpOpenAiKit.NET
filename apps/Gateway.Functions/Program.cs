@@ -89,17 +89,40 @@ app.MapPost("/api/chat", async (
             case "CreateDraftSalesOrder":
             {
                 var idempotencyKey = plannedCall.Args["idempotencyKey"].ToString() ?? string.Empty;
-                if (idempotencyCache.TryGet(idempotencyKey, out var cachedDraftId))
+                var dto = BuildDraftRequest(plannedCall.Args);
+                var payloadHash = IdempotencyCache.ComputePayloadHash(dto);
+                var reservation = idempotencyCache.ReserveDraft(idempotencyKey, payloadHash);
+                if (reservation.Status == IdempotencyStatus.Existing)
                 {
                     executedCalls.Add(plannedCall);
-                    answerParts.Add($"Draft already created: {cachedDraftId} (idempotent replay).");
-                    evidence.Add(new Evidence("erp.draftOrder", "draftId", cachedDraftId));
+                    answerParts.Add($"Draft already created: {reservation.DraftId} (idempotent replay).");
+                    evidence.Add(new Evidence("erp.draftOrder", "draftId", reservation.DraftId));
                     break;
                 }
 
-                var dto = BuildDraftRequest(plannedCall.Args);
-                var draft = await erp.CreateDraftOrderAsync(dto, ct);
-                idempotencyCache.Set(idempotencyKey, draft.DraftId);
+                if (reservation.Status == IdempotencyStatus.InProgress)
+                {
+                    answerParts.Add($"Draft creation already in progress for idempotency key {idempotencyKey}.");
+                    break;
+                }
+
+                if (reservation.Status == IdempotencyStatus.Conflict)
+                {
+                    answerParts.Add($"Idempotency key reuse detected with different payload: {idempotencyKey}.");
+                    break;
+                }
+
+                DraftOrderDto draft;
+                try
+                {
+                    draft = await erp.CreateDraftOrderAsync(dto, ct);
+                    idempotencyCache.CompleteDraft(idempotencyKey, payloadHash, draft.DraftId);
+                }
+                catch
+                {
+                    idempotencyCache.FailDraft(idempotencyKey, payloadHash);
+                    throw;
+                }
 
                 executedCalls.Add(plannedCall);
                 answerParts.Add($"Draft created: {draft.DraftId}. Commit remains disabled by default.");

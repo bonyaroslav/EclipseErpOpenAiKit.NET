@@ -360,6 +360,39 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     }
 
     [Fact]
+    public async Task DraftWithSameIdempotencyKeyDifferentPayload_IsBlocked()
+    {
+        factory.FakeErp.Reset();
+        var idempotencyKey = $"idem-conflict-{Guid.NewGuid():N}";
+        var firstCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
+        {
+            ["customerId"] = "ACME",
+            ["shipDate"] = "2030-01-01",
+            ["idempotencyKey"] = idempotencyKey,
+            ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+        });
+        var secondCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
+        {
+            ["customerId"] = "ACME",
+            ["shipDate"] = "2030-01-01",
+            ["idempotencyKey"] = idempotencyKey,
+            ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 11 } }
+        });
+
+        factory.Planner.SetCalls([firstCall]);
+        var firstResponse = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        firstResponse.EnsureSuccessStatusCode();
+
+        factory.Planner.SetCalls([secondCall]);
+        var secondResponse = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        secondResponse.EnsureSuccessStatusCode();
+
+        var secondPayload = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains("Idempotency key reuse detected", secondPayload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, factory.FakeErp.DraftCreateCount);
+    }
+
+    [Fact]
     public async Task AuditPayload_RedactsSensitiveNestedFields()
     {
         factory.FakeErp.Reset();
