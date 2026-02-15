@@ -73,8 +73,13 @@ app.MapPost("/api/chat", async (
         {
             case "GetInventoryAvailability":
             {
-                var itemId = plannedCall.Args["itemId"].ToString() ?? "ITEM-123";
-                var warehouseId = plannedCall.Args["warehouseId"].ToString() ?? "MAD";
+                if (!TryGetRequiredString(plannedCall.Args, "itemId", out var itemId, out var error) ||
+                    !TryGetRequiredString(plannedCall.Args, "warehouseId", out var warehouseId, out error))
+                {
+                    RejectToolCall(plannedCall, error, logger, answerParts);
+                    break;
+                }
+
                 var inventory = await erp.GetInventoryAsync(itemId, warehouseId, ct);
 
                 executedCalls.Add(plannedCall);
@@ -88,8 +93,13 @@ app.MapPost("/api/chat", async (
 
             case "CreateDraftSalesOrder":
             {
-                var idempotencyKey = plannedCall.Args["idempotencyKey"].ToString() ?? string.Empty;
-                var dto = BuildDraftRequest(plannedCall.Args);
+                if (!TryBuildDraftRequest(plannedCall.Args, out var dto, out var error))
+                {
+                    RejectToolCall(plannedCall, error, logger, answerParts);
+                    break;
+                }
+
+                var idempotencyKey = dto.IdempotencyKey;
                 var payloadHash = IdempotencyCache.ComputePayloadHash(dto);
                 var reservation = idempotencyCache.ReserveDraft(idempotencyKey, payloadHash);
                 if (reservation.Status == IdempotencyStatus.Existing)
@@ -133,7 +143,12 @@ app.MapPost("/api/chat", async (
 
             case "ExplainOrderException":
             {
-                var orderId = plannedCall.Args["orderId"].ToString() ?? "SO-456";
+                if (!TryGetRequiredString(plannedCall.Args, "orderId", out var orderId, out var error))
+                {
+                    RejectToolCall(plannedCall, error, logger, answerParts);
+                    break;
+                }
+
                 var context = await erp.GetOrderExceptionContextAsync(orderId, ct);
                 var governedData = BuildGovernedOrderExceptionData(context.Data, redactor);
 
@@ -203,36 +218,160 @@ app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 app.Run();
 
-static CreateDraftOrderDto BuildDraftRequest(IReadOnlyDictionary<string, object> args)
+static bool TryBuildDraftRequest(
+    IReadOnlyDictionary<string, object> args,
+    out CreateDraftOrderDto dto,
+    out string error)
 {
-    var customerId = args["customerId"].ToString() ?? "ACME";
-    var shipDate = args["shipDate"].ToString() ?? "2030-01-01";
-    var idempotencyKey = args["idempotencyKey"].ToString() ?? "demo-key-001";
-
-    var lines = new List<DraftLineDto>
+    dto = default!;
+    if (!TryGetRequiredString(args, "customerId", out var customerId, out error))
     {
-        new("ITEM-123", 10)
-    };
-
-    if (args.TryGetValue("lines", out var linesObj) && linesObj is IEnumerable<object> rawLines)
-    {
-        lines.Clear();
-        foreach (var rawLine in rawLines)
-        {
-            if (rawLine is not IReadOnlyDictionary<string, object> map)
-            {
-                continue;
-            }
-
-            var sku = map.TryGetValue("sku", out var skuValue) ? skuValue?.ToString() : "ITEM-123";
-            var qty = map.TryGetValue("qty", out var qtyValue) && int.TryParse(qtyValue?.ToString(), out var parsedQty)
-                ? parsedQty
-                : 10;
-            lines.Add(new DraftLineDto(sku ?? "ITEM-123", qty));
-        }
+        return false;
     }
 
-    return new CreateDraftOrderDto(customerId, shipDate, lines, idempotencyKey);
+    if (!TryGetRequiredString(args, "shipDate", out var shipDate, out error))
+    {
+        return false;
+    }
+
+    if (!TryGetRequiredString(args, "idempotencyKey", out var idempotencyKey, out error))
+    {
+        return false;
+    }
+
+    if (!TryGetRequiredLines(args, out var lines, out error))
+    {
+        return false;
+    }
+
+    dto = new CreateDraftOrderDto(customerId, shipDate, lines, idempotencyKey);
+    return true;
+}
+
+static bool TryGetRequiredLines(
+    IReadOnlyDictionary<string, object> args,
+    out List<DraftLineDto> lines,
+    out string error)
+{
+    lines = new List<DraftLineDto>();
+    error = string.Empty;
+
+    if (!args.TryGetValue("lines", out var rawLines) || rawLines is null)
+    {
+        error = "missing 'lines'";
+        return false;
+    }
+
+    if (rawLines is not IEnumerable<object> entries)
+    {
+        error = "invalid 'lines'";
+        return false;
+    }
+
+    foreach (var entry in entries)
+    {
+        if (entry is not IReadOnlyDictionary<string, object> lineMap)
+        {
+            error = "invalid 'lines'";
+            return false;
+        }
+
+        if (!TryGetRequiredString(lineMap, "sku", out var sku, out error))
+        {
+            return false;
+        }
+
+        if (!TryGetRequiredInt(lineMap, "qty", out var qty, out error))
+        {
+            return false;
+        }
+
+        if (qty <= 0)
+        {
+            error = "invalid 'qty'";
+            return false;
+        }
+
+        lines.Add(new DraftLineDto(sku, qty));
+    }
+
+    if (lines.Count == 0)
+    {
+        error = "missing 'lines'";
+        return false;
+    }
+
+    return true;
+}
+
+static bool TryGetRequiredString(
+    IReadOnlyDictionary<string, object> args,
+    string key,
+    out string value,
+    out string error)
+{
+    value = string.Empty;
+    error = string.Empty;
+
+    if (!args.TryGetValue(key, out var raw) || raw is null)
+    {
+        error = $"missing '{key}'";
+        return false;
+    }
+
+    var text = raw is string rawString ? rawString : raw.ToString();
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        error = $"missing '{key}'";
+        return false;
+    }
+
+    value = text.Trim();
+    return true;
+}
+
+static bool TryGetRequiredInt(
+    IReadOnlyDictionary<string, object> args,
+    string key,
+    out int value,
+    out string error)
+{
+    value = 0;
+    error = string.Empty;
+
+    if (!args.TryGetValue(key, out var raw) || raw is null)
+    {
+        error = $"missing '{key}'";
+        return false;
+    }
+
+    switch (raw)
+    {
+        case int intValue:
+            value = intValue;
+            return true;
+        case long longValue when longValue is >= int.MinValue and <= int.MaxValue:
+            value = (int)longValue;
+            return true;
+        case double doubleValue when Math.Abs(doubleValue % 1) < 0.000001:
+            value = (int)doubleValue;
+            return true;
+        default:
+            if (int.TryParse(raw.ToString(), out var parsed))
+            {
+                value = parsed;
+                return true;
+            }
+
+            error = $"invalid '{key}'";
+            return false;
+    }
+}
+
+static void RejectToolCall(ToolCall plannedCall, string reason, ILogger logger, List<string> answerParts)
+{
+    logger.LogWarning("tool_call_rejected name={ToolName} reason={Reason}", plannedCall.Name, reason);
+    answerParts.Add($"Tool call rejected: {plannedCall.Name} invalid arguments ({reason}).");
 }
 
 static bool IsAllowlistedEvidenceField(string field)

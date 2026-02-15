@@ -371,6 +371,67 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     }
 
     [Fact]
+    public async Task InvalidInventoryArgs_AreRejected()
+    {
+        factory.FakeErp.Reset();
+        factory.Planner.SetCalls(new[]
+        {
+            new ToolCall("GetInventoryAvailability", new Dictionary<string, object> { ["warehouseId"] = "MAD" })
+        });
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
+        Assert.Equal(0, factory.FakeErp.InventoryCallCount);
+    }
+
+    [Fact]
+    public async Task InvalidDraftArgs_AreRejected()
+    {
+        CleanupIdempotencyStore();
+        factory.FakeErp.Reset();
+        factory.Planner.SetCalls(new[]
+        {
+            new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
+            {
+                ["customerId"] = "ACME",
+                ["shipDate"] = "2030-01-01",
+                ["idempotencyKey"] = "idem-invalid-lines",
+                ["lines"] = Array.Empty<object>()
+            })
+        });
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
+        Assert.Equal(0, factory.FakeErp.DraftCreateCount);
+    }
+
+    [Fact]
+    public async Task InvalidOrderExceptionArgs_AreRejected()
+    {
+        factory.FakeErp.Reset();
+        factory.Planner.SetCalls(new[]
+        {
+            new ToolCall("ExplainOrderException", new Dictionary<string, object>())
+        });
+
+        var response = await _client.PostAsJsonAsync("/api/chat", new { message = "ignore planner input" });
+        response.EnsureSuccessStatusCode();
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
+        Assert.Equal(0, factory.FakeErp.OrderExceptionCallCount);
+    }
+
+    [Fact]
     public async Task DraftWithSameIdempotencyKeyDifferentPayload_IsBlocked()
     {
         CleanupIdempotencyStore();
