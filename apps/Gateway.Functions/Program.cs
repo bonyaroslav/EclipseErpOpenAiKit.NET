@@ -142,6 +142,8 @@ app.MapGet("/health", () => Results.Ok(new { ok = true }));
 
 app.Run();
 
+public partial class Program;
+
 static CreateDraftOrderDto BuildDraftRequest(IReadOnlyDictionary<string, object> args)
 {
     var customerId = args["customerId"].ToString() ?? "ACME";
