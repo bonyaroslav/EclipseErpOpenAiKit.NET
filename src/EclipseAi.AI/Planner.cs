@@ -39,6 +39,38 @@ public static class PlannerFactory
 
         return new OpenAiPlanner(openAiClient ?? HttpOpenAiClient.CreateDefault(), fallback, settings);
     }
+
+    public static IOrderExceptionSummarizer CreateSummarizer(
+        string? openAiApiKey,
+        string? openAiMode = null,
+        bool enableSummarization = false,
+        IOpenAiClient? openAiClient = null)
+    {
+        if (!enableSummarization || string.IsNullOrWhiteSpace(openAiApiKey))
+        {
+            return new NoopOrderExceptionSummarizer();
+        }
+
+        var mode = string.IsNullOrWhiteSpace(openAiMode) ? "emulated" : openAiMode.Trim();
+        if (mode.Equals("off", StringComparison.OrdinalIgnoreCase))
+        {
+            return new NoopOrderExceptionSummarizer();
+        }
+
+        if (!mode.Equals("real", StringComparison.OrdinalIgnoreCase))
+        {
+            return new DeterministicOrderExceptionSummarizer();
+        }
+
+        var settings = new OpenAiPlannerSettings
+        {
+            ApiKey = openAiApiKey.Trim(),
+            EmulateToolCalling = false,
+            EnableSummarization = true
+        };
+
+        return new OpenAiOrderExceptionSummarizer(openAiClient ?? HttpOpenAiClient.CreateDefault(), settings);
+    }
 }
 
 public sealed class OpenAiPlanner(IOpenAiClient client, IAiPlanner fallbackPlanner, OpenAiPlannerSettings settings) : IAiPlanner
@@ -74,6 +106,17 @@ public sealed class OpenAiPlannerSettings
 public interface IOpenAiClient
 {
     Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct);
+    Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct);
+}
+
+public interface IOrderExceptionSummarizer
+{
+    string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data);
 }
 
 public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
@@ -104,6 +147,33 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
         res.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
         return ParseToolCalls(doc.RootElement);
+    }
+
+    public async Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
+    {
+        if (!settings.EnableSummarization)
+        {
+            return null;
+        }
+
+        var dataJson = JsonSerializer.Serialize(data);
+        using var req = new HttpRequestMessage(HttpMethod.Post, new Uri(settings.BaseUri, "responses"));
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {settings.ApiKey}");
+        req.Content = JsonContent.Create(new
+        {
+            model = settings.Model,
+            input = $"Summarize order exception in one sentence. OrderId={orderId}; SummaryCode={summaryCode}; Data={dataJson}"
+        }, options: s_jsonOptions);
+
+        using var res = await httpClient.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        return ParseTextOutput(doc.RootElement);
     }
 
     private static object[] BuildToolsSchema()
@@ -204,6 +274,16 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
         return calls;
     }
 
+    private static string? ParseTextOutput(JsonElement root)
+    {
+        if (!root.TryGetProperty("output_text", out var outputText))
+        {
+            return null;
+        }
+
+        return outputText.GetString();
+    }
+
     private static IReadOnlyDictionary<string, object> ParseArgs(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -234,6 +314,39 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
             JsonValueKind.Object => value.EnumerateObject().ToDictionary(p => p.Name, p => ConvertValue(p.Value)!),
             _ => null
         };
+    }
+}
+
+public sealed class NoopOrderExceptionSummarizer : IOrderExceptionSummarizer
+{
+    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    {
+        return null;
+    }
+}
+
+public sealed class DeterministicOrderExceptionSummarizer : IOrderExceptionSummarizer
+{
+    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    {
+        return $"Order {orderId} delayed ({summaryCode}).";
+    }
+}
+
+public sealed class OpenAiOrderExceptionSummarizer(IOpenAiClient client, OpenAiPlannerSettings settings) : IOrderExceptionSummarizer
+{
+    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    {
+        try
+        {
+            return client.SummarizeOrderExceptionAsync(orderId, summaryCode, data, settings, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch
+        {
+            return $"Order {orderId} delayed ({summaryCode}).";
+        }
     }
 }
 

@@ -49,6 +49,9 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
   - OpenAI optional mode gate:
     - `OPENAI_MODE` supports `off|emulated|real`
     - `real` mode uses OpenAI planner client path with deterministic fallback on failure
+  - Optional summarization:
+    - `OPENAI_SUMMARIZE=1` enables order exception summary path
+    - real mode summary uses OpenAI client with deterministic fallback on errors
 
 - Next:
-  - Replace emulated OpenAI planner path with real tool/function-calling implementation behind configuration, while preserving deterministic offline default.
+  - Add integration coverage for `OPENAI_MODE=off` and incoming `OPENAI_SUMMARIZE=1` behavior using deterministic test doubles.

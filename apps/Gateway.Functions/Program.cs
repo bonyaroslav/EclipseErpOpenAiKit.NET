@@ -13,6 +13,13 @@ builder.Services.AddSingleton<IAiPlanner>(_ =>
     var openAiMode = Environment.GetEnvironmentVariable("OPENAI_MODE");
     return PlannerFactory.Create(openAiApiKey, openAiMode);
 });
+builder.Services.AddSingleton<IOrderExceptionSummarizer>(_ =>
+{
+    var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+    var openAiMode = Environment.GetEnvironmentVariable("OPENAI_MODE");
+    var enableSummarization = string.Equals(Environment.GetEnvironmentVariable("OPENAI_SUMMARIZE"), "1", StringComparison.OrdinalIgnoreCase);
+    return PlannerFactory.CreateSummarizer(openAiApiKey, openAiMode, enableSummarization);
+});
 builder.Services.AddSingleton<IRedactor, MapRedactor>();
 builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
 {
@@ -27,6 +34,7 @@ app.MapPost("/api/chat", async (
     ChatRequest request,
     HttpContext httpContext,
     IAiPlanner planner,
+    IOrderExceptionSummarizer summarizer,
     IErpConnector erp,
     IRedactor redactor,
     IAuditStore auditStore,
@@ -102,7 +110,8 @@ app.MapPost("/api/chat", async (
                 var context = await erp.GetOrderExceptionContextAsync(orderId, ct);
 
                 executedCalls.Add(plannedCall);
-                answerParts.Add($"Order {context.OrderId} delayed ({context.SummaryCode}).");
+                var summary = summarizer.Summarize(context.OrderId, context.SummaryCode, context.Data);
+                answerParts.Add(string.IsNullOrWhiteSpace(summary) ? $"Order {context.OrderId} delayed ({context.SummaryCode})." : summary);
 
                 foreach (var pair in context.Data)
                 {

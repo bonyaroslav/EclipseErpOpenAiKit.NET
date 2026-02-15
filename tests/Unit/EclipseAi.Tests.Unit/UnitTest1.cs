@@ -67,6 +67,47 @@ public class PlannerTests
     }
 
     [Fact]
+    public void SummarizerFactory_WithoutKey_ReturnsNoop()
+    {
+        var summarizer = PlannerFactory.CreateSummarizer(openAiApiKey: null, openAiMode: "real", enableSummarization: true);
+
+        Assert.IsType<NoopOrderExceptionSummarizer>(summarizer);
+    }
+
+    [Fact]
+    public void SummarizerFactory_EmulatedMode_ReturnsDeterministicSummarizer()
+    {
+        var summarizer = PlannerFactory.CreateSummarizer(openAiApiKey: "demo-key", openAiMode: "emulated", enableSummarization: true);
+
+        Assert.IsType<DeterministicOrderExceptionSummarizer>(summarizer);
+        Assert.Equal(
+            "Order SO-456 delayed (BACKORDER).",
+            summarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+    }
+
+    [Fact]
+    public void Summarizer_RealMode_UsesOpenAiClientAndFallsBackOnError()
+    {
+        var summarizer = PlannerFactory.CreateSummarizer(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            enableSummarization: true,
+            openAiClient: new StubOpenAiClient([], "AI summary"));
+
+        Assert.Equal("AI summary", summarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+
+        var fallbackSummarizer = PlannerFactory.CreateSummarizer(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            enableSummarization: true,
+            openAiClient: new ThrowingOpenAiClient());
+
+        Assert.Equal(
+            "Order SO-456 delayed (BACKORDER).",
+            fallbackSummarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+    }
+
+    [Fact]
     public void Plan_InventoryMessage_UsesInventoryTool()
     {
         var planner = new FakePlanner();
@@ -277,17 +318,37 @@ public class ErpConnectorTests
     }
 }
 
-internal sealed class StubOpenAiClient(IReadOnlyList<ToolCall> calls) : IOpenAiClient
+internal sealed class StubOpenAiClient(IReadOnlyList<ToolCall> calls, string? summary = null) : IOpenAiClient
 {
     public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
     {
         return Task.FromResult(calls);
+    }
+
+    public Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
+    {
+        return Task.FromResult(summary);
     }
 }
 
 internal sealed class ThrowingOpenAiClient : IOpenAiClient
 {
     public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
+    {
+        throw new InvalidOperationException("simulated openai failure");
+    }
+
+    public Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
     {
         throw new InvalidOperationException("simulated openai failure");
     }

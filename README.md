@@ -70,11 +70,13 @@ Every `/api/chat` response returns:
 ```powershell
 $env:OPENAI_API_KEY = "your-key"
 $env:OPENAI_MODE = "emulated" # default
+$env:OPENAI_SUMMARIZE = "1"    # optional order-exception summary
 ```
 
 Modes:
 - `OPENAI_MODE=emulated` (default): OpenAI planner path enabled but deterministically emulated for demo/offline stability.
 - `OPENAI_MODE=real`: OpenAI planner uses tool/function-calling HTTP path and falls back to deterministic planner on failure.
 - `OPENAI_MODE=off`: forces deterministic offline planner.
+- `OPENAI_SUMMARIZE=1`: enables optional OpenAI-backed order exception summary (falls back to deterministic summary on failure).
 
 If key is not set, offline mode remains active regardless of mode.
