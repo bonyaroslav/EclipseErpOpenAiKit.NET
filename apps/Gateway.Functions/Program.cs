@@ -112,12 +112,13 @@ app.MapPost("/api/chat", async (
             {
                 var orderId = plannedCall.Args["orderId"].ToString() ?? "SO-456";
                 var context = await erp.GetOrderExceptionContextAsync(orderId, ct);
+                var governedData = BuildGovernedOrderExceptionData(context.Data, redactor);
 
                 executedCalls.Add(plannedCall);
-                var summary = summarizer.Summarize(context.OrderId, context.SummaryCode, context.Data);
+                var summary = summarizer.Summarize(context.OrderId, context.SummaryCode, governedData);
                 answerParts.Add(string.IsNullOrWhiteSpace(summary) ? $"Order {context.OrderId} delayed ({context.SummaryCode})." : summary);
 
-                foreach (var pair in context.Data)
+                foreach (var pair in governedData)
                 {
                     if (!IsAllowlistedEvidenceField(pair.Key))
                     {
@@ -214,6 +215,32 @@ static CreateDraftOrderDto BuildDraftRequest(IReadOnlyDictionary<string, object>
 static bool IsAllowlistedEvidenceField(string field)
 {
     return field is "holds" or "backorderedSkus" or "arOverdueDays" or "warehouse";
+}
+
+static IReadOnlyDictionary<string, object> BuildGovernedOrderExceptionData(
+    IReadOnlyDictionary<string, object> data,
+    IRedactor redactor)
+{
+    var allowlisted = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+    foreach (var pair in data)
+    {
+        if (!IsAllowlistedEvidenceField(pair.Key))
+        {
+            continue;
+        }
+
+        allowlisted[pair.Key] = pair.Value;
+    }
+
+    var redacted = redactor.Redact(allowlisted);
+    return ToReadOnlyDictionary(redacted, allowlisted);
+}
+
+static IReadOnlyDictionary<string, object> ToReadOnlyDictionary(object redacted, IReadOnlyDictionary<string, object> fallback)
+{
+    return redacted is IReadOnlyDictionary<string, object> map
+        ? map
+        : fallback;
 }
 
 public partial class Program;

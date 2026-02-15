@@ -465,6 +465,17 @@ public sealed class OpenAiSummaryBehaviorTests(OpenAiSummaryFactory factory) : I
         Assert.Contains("AI summary deterministic", payload.GetProperty("answer").GetString(), StringComparison.Ordinal);
         Assert.Equal(1, factory.FakeErp.OrderExceptionCallCount);
         Assert.Equal("SO-456", factory.FakeErp.OrderExceptionRequests.Single());
+        AssertGovernedSummaryData(factory.OpenAiClient.LastSummarizeData);
+    }
+
+    private static void AssertGovernedSummaryData(IReadOnlyDictionary<string, object>? data)
+    {
+        Assert.NotNull(data);
+        Assert.Contains("holds", data.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("backorderedSkus", data.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("arOverdueDays", data.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("warehouse", data.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("customerName", data.Keys, StringComparer.OrdinalIgnoreCase);
     }
 }
 
@@ -500,6 +511,9 @@ public sealed class OpenAiSummaryFactory : WebApplicationFactory<Program>
 {
     public FakeErpConnector FakeErp { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
+    public DeterministicOpenAiClient OpenAiClient { get; } = new(
+        [new ToolCall("ExplainOrderException", new Dictionary<string, object> { ["orderId"] = "SO-456" })],
+        "AI summary deterministic");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -521,15 +535,27 @@ public sealed class OpenAiSummaryFactory : WebApplicationFactory<Program>
             services.RemoveAll<IOpenAiClient>();
             services.AddSingleton<IErpConnector>(FakeErp);
             services.AddSingleton<IAuditStore>(AuditStore);
-            services.AddSingleton<IOpenAiClient>(new DeterministicOpenAiClient(
-                [new ToolCall("ExplainOrderException", new Dictionary<string, object> { ["orderId"] = "SO-456" })],
-                "AI summary deterministic"));
+            services.AddSingleton<IOpenAiClient>(OpenAiClient);
         });
     }
 }
 
 public sealed class DeterministicOpenAiClient(IReadOnlyList<ToolCall> calls, string summary) : IOpenAiClient
 {
+    private readonly object _gate = new();
+    private IReadOnlyDictionary<string, object>? _lastSummarizeData;
+
+    public IReadOnlyDictionary<string, object>? LastSummarizeData
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastSummarizeData;
+            }
+        }
+    }
+
     public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
     {
         return Task.FromResult(calls);
@@ -542,6 +568,11 @@ public sealed class DeterministicOpenAiClient(IReadOnlyList<ToolCall> calls, str
         OpenAiPlannerSettings settings,
         CancellationToken ct)
     {
+        lock (_gate)
+        {
+            _lastSummarizeData = new Dictionary<string, object>(data, StringComparer.OrdinalIgnoreCase);
+        }
+
         return Task.FromResult<string?>(summary);
     }
 }
