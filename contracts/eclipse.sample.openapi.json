@@ -1,0 +1,148 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Mock Eclipse ERP Contract",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/inventory/{itemId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "warehouse",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/draftSalesOrders": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDraftOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Draft order created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftOrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orderException/{orderId}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order exception context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderExceptionContextDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "InventoryDto": {
+        "type": "object",
+        "required": ["itemId", "warehouseId", "availableQty", "etaUtc"],
+        "properties": {
+          "itemId": { "type": "string" },
+          "warehouseId": { "type": "string" },
+          "availableQty": { "type": "integer" },
+          "etaUtc": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DraftLineDto": {
+        "type": "object",
+        "required": ["sku", "qty"],
+        "properties": {
+          "sku": { "type": "string" },
+          "qty": { "type": "integer" }
+        }
+      },
+      "CreateDraftOrderDto": {
+        "type": "object",
+        "required": ["customerId", "shipDate", "lines", "idempotencyKey"],
+        "properties": {
+          "customerId": { "type": "string" },
+          "shipDate": { "type": "string" },
+          "lines": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DraftLineDto" }
+          },
+          "idempotencyKey": { "type": "string" }
+        }
+      },
+      "DraftOrderDto": {
+        "type": "object",
+        "required": ["draftId", "status", "warnings"],
+        "properties": {
+          "draftId": { "type": "string" },
+          "status": { "type": "string" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "OrderExceptionContextDto": {
+        "type": "object",
+        "required": ["orderId", "summaryCode", "data"],
+        "properties": {
+          "orderId": { "type": "string" },
+          "summaryCode": { "type": "string" },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  }
+}

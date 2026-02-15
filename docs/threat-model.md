@@ -1,7 +1,7 @@
-﻿# Threat model (small, practical)
+# Threat model (small, practical)
 
-- Prompt injection: only registered tools; validate tool args server-side.
-- Data exfiltration: field allowlists + redaction before any AI call.
-- Unsafe writes: draft-only default; commit disabled without explicit configuration + approval provider.
-- Secrets: env vars / user-secrets only; no secrets in repo.
-- Auditability: correlationId everywhere + audit events per ERP/tool call.
+- Prompt injection: only registered tools, with server-side argument validation.
+- Data exfiltration: field allowlists and redaction before AI calls and audit persistence.
+- Unsafe writes: draft-only default; commit disabled unless explicitly configured.
+- Secrets: environment variables or user-secrets only; no secrets in repo.
+- Auditability: correlation ID across request, tool call, ERP call, and audit record.

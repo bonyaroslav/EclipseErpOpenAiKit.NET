@@ -1,2 +1,24 @@
 <Solution>
+  <Folder Name="/apps/">
+    <Project Path="apps/Gateway.Functions/Gateway.Functions.csproj" />
+  </Folder>
+  <Folder Name="/mocks/">
+    <Project Path="mocks/Mock.Erp/Mock.Erp.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/EclipseAi.AI/EclipseAi.AI.csproj" />
+    <Project Path="src/EclipseAi.Connectors.Erp/EclipseAi.Connectors.Erp.csproj" />
+    <Project Path="src/EclipseAi.Domain/EclipseAi.Domain.csproj" />
+    <Project Path="src/EclipseAi.Governance/EclipseAi.Governance.csproj" />
+    <Project Path="src/EclipseAi.Observability/EclipseAi.Observability.csproj" />
+  </Folder>
+  <Folder Name="/tests/Contract/">
+    <Project Path="tests/Contract/EclipseAi.Tests.Contract/EclipseAi.Tests.Contract.csproj" />
+  </Folder>
+  <Folder Name="/tests/Integration/">
+    <Project Path="tests/Integration/EclipseAi.Tests.Integration/EclipseAi.Tests.Integration.csproj" />
+  </Folder>
+  <Folder Name="/tests/Unit/">
+    <Project Path="tests/Unit/EclipseAi.Tests.Unit/EclipseAi.Tests.Unit.csproj" />
+  </Folder>
 </Solution>

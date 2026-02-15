@@ -10,6 +10,8 @@ public interface IAiPlanner
 
 public sealed class FakePlanner : IAiPlanner
 {
+    private const string DemoShipDate = "2030-01-01";
+
     private static readonly Regex SoRegex = new(@"SO-\d+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex ItemRegex = new(@"ITEM-\d+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex WhRegex = new(@"\b([A-Z]{3})\b", RegexOptions.Compiled);
@@ -43,7 +45,7 @@ public sealed class FakePlanner : IAiPlanner
                 {
                     ["customerId"] = "ACME",
                     ["lines"] = new object[]{ new Dictionary<string, object>{{"sku", string.IsNullOrWhiteSpace(item) ? "ITEM-123" : item.ToUpperInvariant()}, {"qty", 10}} },
-                    ["shipDate"] = DateTime.UtcNow.Date.AddDays(1).ToString("yyyy-MM-dd"),
+                    ["shipDate"] = DemoShipDate,
                     ["idempotencyKey"] = "demo-key-001"
                 })
             };

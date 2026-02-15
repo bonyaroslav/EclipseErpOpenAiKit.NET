@@ -1,0 +1,25 @@
+@host = http://localhost:7071
+
+### Scenario 1: Inventory availability
+POST {{host}}/api/chat
+Content-Type: application/json
+
+{
+  "message": "Do we have ITEM-123 in warehouse MAD? What's available and ETA?"
+}
+
+### Scenario 2: Draft sales order
+POST {{host}}/api/chat
+Content-Type: application/json
+
+{
+  "message": "Create a draft order for ACME: 10x ITEM-123, ship tomorrow."
+}
+
+### Scenario 3: Order exception copilot
+POST {{host}}/api/chat
+Content-Type: application/json
+
+{
+  "message": "Why is SO-456 delayed and what should I do?"
+}
