@@ -27,3 +27,23 @@ A new user can clone this repo on Windows 11 and run a deterministic end-to-end 
 ## Detailed plan
 
 See `docs/plan.md` for milestones and expanded acceptance criteria.
+
+## Implementation status (TDD)
+
+- Completed:
+  - Scenario integration tests for all `/api/chat` MVP flows:
+    - inventory availability
+    - draft sales order with idempotent replay
+    - order exception copilot evidence allowlist
+  - Governance integration tests:
+    - unknown tool blocked by allowlist
+    - draft write without idempotency blocked
+    - audit payload redaction for sensitive nested fields
+  - Correlation propagation implementation:
+    - request correlation scope set in chat endpoint
+    - ERP connector propagates `x-correlation-id` on outbound calls
+    - integration assertions verify ERP execution sees request correlation ID
+
+- Next:
+  - Add host-level test that validates `x-correlation-id` is physically present at mock ERP HTTP boundary.
+  - Replace emulated OpenAI planner path with real tool/function-calling implementation behind configuration, while preserving deterministic offline default.

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\..\src\EclipseAi.Domain\EclipseAi.Domain.csproj" />
     <ProjectReference Include="..\..\..\src\EclipseAi.AI\EclipseAi.AI.csproj" />
     <ProjectReference Include="..\..\..\src\EclipseAi.Governance\EclipseAi.Governance.csproj" />
+    <ProjectReference Include="..\..\..\src\EclipseAi.Observability\EclipseAi.Observability.csproj" />
   </ItemGroup>
 
 </Project>

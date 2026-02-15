@@ -3,6 +3,7 @@ using System.Text.Json;
 using EclipseAi.AI;
 using EclipseAi.Connectors.Erp;
 using EclipseAi.Domain;
+using EclipseAi.Observability;
 using Gateway.Functions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -27,6 +28,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
 
         Assert.Equal(1, factory.FakeErp.InventoryCallCount);
         Assert.Equal(("ITEM-123", "MAD"), factory.FakeErp.InventoryRequests.Single());
+        Assert.Equal(response.CorrelationId, factory.FakeErp.InventoryCorrelationIds.Single());
     }
 
     [Fact]
@@ -44,6 +46,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
         Assert.Equal(1, factory.FakeErp.DraftCreateCount);
         Assert.True(factory.AuditStore.Contains(firstResponse.CorrelationId));
         Assert.True(factory.AuditStore.Contains(secondResponse.CorrelationId));
+        Assert.Equal(firstResponse.CorrelationId, factory.FakeErp.DraftCorrelationIds.Single());
     }
 
     [Fact]
@@ -60,6 +63,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
 
         Assert.Equal(1, factory.FakeErp.OrderExceptionCallCount);
         Assert.Equal("SO-456", factory.FakeErp.OrderExceptionRequests.Single());
+        Assert.Equal(response.CorrelationId, factory.FakeErp.OrderExceptionCorrelationIds.Single());
     }
 
     private async Task<ChatApiResponse> PostChatAsync(string message)
@@ -131,6 +135,9 @@ public sealed class FakeErpConnector : IErpConnector
     private readonly object _gate = new();
     private readonly List<(string ItemId, string WarehouseId)> _inventoryRequests = new();
     private readonly List<string> _orderExceptionRequests = new();
+    private readonly List<string?> _inventoryCorrelationIds = new();
+    private readonly List<string?> _draftCorrelationIds = new();
+    private readonly List<string?> _orderExceptionCorrelationIds = new();
 
     public int InventoryCallCount { get; private set; }
     public int DraftCreateCount { get; private set; }
@@ -143,6 +150,39 @@ public sealed class FakeErpConnector : IErpConnector
             lock (_gate)
             {
                 return _inventoryRequests.ToArray();
+            }
+        }
+    }
+
+    public IReadOnlyList<string?> InventoryCorrelationIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _inventoryCorrelationIds.ToArray();
+            }
+        }
+    }
+
+    public IReadOnlyList<string?> DraftCorrelationIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _draftCorrelationIds.ToArray();
+            }
+        }
+    }
+
+    public IReadOnlyList<string?> OrderExceptionCorrelationIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _orderExceptionCorrelationIds.ToArray();
             }
         }
     }
@@ -164,6 +204,7 @@ public sealed class FakeErpConnector : IErpConnector
         {
             InventoryCallCount++;
             _inventoryRequests.Add((itemId, warehouseId));
+            _inventoryCorrelationIds.Add(CorrelationScope.Current);
         }
 
         return Task.FromResult(new InventoryDto(itemId, warehouseId, 27, "2030-01-02T10:00:00.0000000Z"));
@@ -174,6 +215,7 @@ public sealed class FakeErpConnector : IErpConnector
         lock (_gate)
         {
             DraftCreateCount++;
+            _draftCorrelationIds.Add(CorrelationScope.Current);
         }
 
         return Task.FromResult(new DraftOrderDto($"D-{dto.IdempotencyKey}", "draft", new[] { "ETA for one line may be +2d" }));
@@ -185,6 +227,7 @@ public sealed class FakeErpConnector : IErpConnector
         {
             OrderExceptionCallCount++;
             _orderExceptionRequests.Add(orderId);
+            _orderExceptionCorrelationIds.Add(CorrelationScope.Current);
         }
 
         var data = new Dictionary<string, object>

@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Json;
+using System.Net.Http.Json;
+using EclipseAi.Observability;
 
 namespace EclipseAi.Connectors.Erp;
 
@@ -11,18 +12,44 @@ public interface IErpConnector
 
 public sealed class HttpErpConnector(HttpClient http) : IErpConnector
 {
-    public Task<InventoryDto> GetInventoryAsync(string itemId, string warehouseId, CancellationToken ct)
-        => http.GetFromJsonAsync<InventoryDto>($"/inventory/{itemId}?warehouse={warehouseId}", ct)!;
+    public async Task<InventoryDto> GetInventoryAsync(string itemId, string warehouseId, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/inventory/{itemId}?warehouse={warehouseId}");
+        TryAddCorrelationHeader(req);
+        using var res = await http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<InventoryDto>(cancellationToken: ct))!;
+    }
 
     public async Task<DraftOrderDto> CreateDraftOrderAsync(CreateDraftOrderDto dto, CancellationToken ct)
     {
-        var res = await http.PostAsJsonAsync("/draftSalesOrders", dto, ct);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/draftSalesOrders")
+        {
+            Content = JsonContent.Create(dto)
+        };
+
+        TryAddCorrelationHeader(req);
+        using var res = await http.SendAsync(req, ct);
         res.EnsureSuccessStatusCode();
         return (await res.Content.ReadFromJsonAsync<DraftOrderDto>(cancellationToken: ct))!;
     }
 
-    public Task<OrderExceptionContextDto> GetOrderExceptionContextAsync(string orderId, CancellationToken ct)
-        => http.GetFromJsonAsync<OrderExceptionContextDto>($"/orderException/{orderId}", ct)!;
+    public async Task<OrderExceptionContextDto> GetOrderExceptionContextAsync(string orderId, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"/orderException/{orderId}");
+        TryAddCorrelationHeader(req);
+        using var res = await http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<OrderExceptionContextDto>(cancellationToken: ct))!;
+    }
+
+    private static void TryAddCorrelationHeader(HttpRequestMessage req)
+    {
+        if (!string.IsNullOrWhiteSpace(CorrelationScope.Current))
+        {
+            req.Headers.TryAddWithoutValidation("x-correlation-id", CorrelationScope.Current);
+        }
+    }
 }
 
 public sealed record InventoryDto(string ItemId, string WarehouseId, int AvailableQty, string EtaUtc);

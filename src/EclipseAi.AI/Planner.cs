@@ -8,6 +8,29 @@ public interface IAiPlanner
     IReadOnlyList<ToolCall> Plan(string message);
 }
 
+public static class PlannerFactory
+{
+    public static IAiPlanner Create(string? openAiApiKey)
+    {
+        var fallback = new FakePlanner();
+        if (string.IsNullOrWhiteSpace(openAiApiKey))
+        {
+            return fallback;
+        }
+
+        return new OpenAiPlanner(fallback);
+    }
+}
+
+public sealed class OpenAiPlanner(IAiPlanner fallbackPlanner) : IAiPlanner
+{
+    public IReadOnlyList<ToolCall> Plan(string message)
+    {
+        // OpenAI mode is emulated for local deterministic demo/testing by default.
+        return fallbackPlanner.Plan(message);
+    }
+}
+
 public sealed class FakePlanner : IAiPlanner
 {
     private const string DemoShipDate = "2030-01-01";

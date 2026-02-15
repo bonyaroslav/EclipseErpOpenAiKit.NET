@@ -7,7 +7,11 @@ using Gateway.Functions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSingleton<IAiPlanner, FakePlanner>();
+builder.Services.AddSingleton<IAiPlanner>(_ =>
+{
+    var openAiApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+    return PlannerFactory.Create(openAiApiKey);
+});
 builder.Services.AddSingleton<IRedactor, MapRedactor>();
 builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
 {
@@ -31,6 +35,7 @@ app.MapPost("/api/chat", async (
     var logger = loggerFactory.CreateLogger("ChatEndpoint");
     var message = request?.Message ?? string.Empty;
     var correlationId = Correlation.NewId();
+    using var correlationScope = CorrelationScope.Push(correlationId);
 
     var plannedCalls = planner.Plan(message);
     var executedCalls = new List<ToolCall>();

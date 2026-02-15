@@ -1,10 +1,29 @@
 using EclipseAi.AI;
 using EclipseAi.Governance;
+using EclipseAi.Observability;
 
 namespace EclipseAi.Tests.Unit;
 
 public class PlannerTests
 {
+    [Fact]
+    public void PlannerFactory_WithoutApiKey_UsesFakePlanner()
+    {
+        var planner = PlannerFactory.Create(openAiApiKey: null);
+
+        Assert.IsType<FakePlanner>(planner);
+    }
+
+    [Fact]
+    public void PlannerFactory_WithApiKey_UsesOpenAiPlannerEmulation()
+    {
+        var planner = PlannerFactory.Create(openAiApiKey: "demo-key");
+
+        Assert.IsType<OpenAiPlanner>(planner);
+        var call = Assert.Single(planner.Plan("Do we have ITEM-123 in warehouse MAD?"));
+        Assert.Equal("GetInventoryAvailability", call.Name);
+    }
+
     [Fact]
     public void Plan_InventoryMessage_UsesInventoryTool()
     {
@@ -99,5 +118,28 @@ public class GovernanceTests
         var firstCall = Assert.IsType<Dictionary<string, object?>>(toolCalls[0]);
         var args = Assert.IsType<Dictionary<string, object?>>(firstCall["args"]);
         Assert.Equal("[REDACTED]", args["customerName"]);
+    }
+}
+
+public class CorrelationTests
+{
+    [Fact]
+    public void CorrelationScope_PushesAndRestoresCurrentId()
+    {
+        Assert.Null(CorrelationScope.Current);
+
+        using (CorrelationScope.Push("corr-1"))
+        {
+            Assert.Equal("corr-1", CorrelationScope.Current);
+
+            using (CorrelationScope.Push("corr-2"))
+            {
+                Assert.Equal("corr-2", CorrelationScope.Current);
+            }
+
+            Assert.Equal("corr-1", CorrelationScope.Current);
+        }
+
+        Assert.Null(CorrelationScope.Current);
     }
 }
