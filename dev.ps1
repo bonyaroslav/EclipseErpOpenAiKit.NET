@@ -23,7 +23,7 @@ switch ($Command)
     }
     'demo'
     {
-        $uri = 'http://localhost:7071/api/chat'
+        $uri = 'http://localhost:5000/api/chat'
         $requests = @(
             @{ message = 'Do we have ITEM-123 in warehouse MAD? What is available and ETA?' },
             @{ message = 'Create a draft order for ACME: 10x ITEM-123, ship tomorrow.' },
