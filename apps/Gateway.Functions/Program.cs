@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
 
 builder.Services.TryAddSingleton<IAiPlanner>(sp =>
 {
@@ -30,6 +32,9 @@ builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
 });
 builder.Services.AddSingleton<IAuditStore, FileAuditStore>();
 builder.Services.AddSingleton<IdempotencyCache>();
+builder.Services.AddSingleton<IChatToolHandler, InventoryToolHandler>();
+builder.Services.AddSingleton<IChatToolHandler, DraftSalesOrderToolHandler>();
+builder.Services.AddSingleton<IChatToolHandler, ExplainOrderExceptionToolHandler>();
 builder.Services.AddSingleton<ChatOrchestrator>();
 
 var app = builder.Build();

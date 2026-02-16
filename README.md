@@ -26,8 +26,21 @@ Most ERP + AI demos stop at prompts. This kit focuses on production-shaped funda
 
 1. Planner converts user input into tool calls.
 2. Policy layer validates tool allowlist and write protections.
-3. ERP connector executes against Mock ERP by default.
-4. Response includes explainable evidence and audit reference.
+3. `ChatOrchestrator` dispatches each allowed tool call to a dedicated handler.
+4. ERP connector executes against Mock ERP by default.
+5. Response includes explainable evidence and audit reference.
+
+## Current gateway internals (extensible flow)
+
+- Thin HTTP endpoint in `apps/Gateway.Functions/Program.cs`.
+- Orchestration in `apps/Gateway.Functions/Services/ChatOrchestrator.cs`.
+- Scenario execution via pluggable handlers in `apps/Gateway.Functions/Services/ChatToolHandlers.cs`:
+  - `GetInventoryAvailability`
+  - `CreateDraftSalesOrder`
+  - `ExplainOrderException`
+- Add a new scenario by adding one `IChatToolHandler` implementation + DI registration.
+
+This keeps the public API contract stable while making scenario growth low-risk.
 
 ## Operating modes
 

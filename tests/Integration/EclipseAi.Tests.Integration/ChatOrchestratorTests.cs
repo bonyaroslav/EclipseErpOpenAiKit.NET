@@ -24,11 +24,9 @@ public sealed class ChatOrchestratorTests
         var auditStore = new InMemoryAuditStore();
         var orchestrator = new ChatOrchestrator(
             planner,
-            new NoopOrderExceptionSummarizer(),
-            erp,
+            BuildHandlers(erp),
             new MapRedactor(),
             auditStore,
-            new IdempotencyCache(),
             NullLogger<ChatOrchestrator>.Instance);
 
         var response = await orchestrator.HandleAsync(
@@ -67,11 +65,9 @@ public sealed class ChatOrchestratorTests
         var auditStore = new InMemoryAuditStore();
         var orchestrator = new ChatOrchestrator(
             planner,
-            new NoopOrderExceptionSummarizer(),
-            erp,
+            BuildHandlers(erp),
             new MapRedactor(),
             auditStore,
-            new IdempotencyCache(),
             NullLogger<ChatOrchestrator>.Instance);
 
         var first = await orchestrator.HandleAsync(
@@ -99,5 +95,15 @@ public sealed class ChatOrchestratorTests
     private sealed class StubPlanner(params ToolCall[] calls) : IAiPlanner
     {
         public IReadOnlyList<ToolCall> Plan(string message) => calls;
+    }
+
+    private static IReadOnlyList<IChatToolHandler> BuildHandlers(FakeErpConnector erp)
+    {
+        return new IChatToolHandler[]
+        {
+            new InventoryToolHandler(erp),
+            new DraftSalesOrderToolHandler(erp, new IdempotencyCache()),
+            new ExplainOrderExceptionToolHandler(erp, new NoopOrderExceptionSummarizer(), new MapRedactor())
+        };
     }
 }
