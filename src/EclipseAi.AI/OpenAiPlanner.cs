@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EclipseAi.Domain;
@@ -9,14 +10,17 @@ public sealed class OpenAiPlanner(
     IOpenAiClient client,
     IAiPlanner fallbackPlanner,
     OpenAiPlannerSettings settings,
-    Action<string>? onFallback = null) : IAiPlanner
+    Action<string>? onFallback = null,
+    Action<string>? onDecision = null) : IAiPlanner
 {
     public IReadOnlyList<ToolCall> Plan(string message)
     {
         if (settings.EmulateToolCalling)
         {
             onFallback?.Invoke("reason=emulated_mode");
-            return fallbackPlanner.Plan(message);
+            var fallbackCalls = fallbackPlanner.Plan(message);
+            onDecision?.Invoke(BuildDecisionDetails("fallback", "emulated_mode", fallbackCalls));
+            return fallbackCalls;
         }
 
         try
@@ -24,22 +28,51 @@ public sealed class OpenAiPlanner(
             var calls = client.PlanToolsAsync(message, settings, CancellationToken.None).GetAwaiter().GetResult();
             if (calls.Count > 0)
             {
+                onDecision?.Invoke(BuildDecisionDetails("openai", "tool_calls", calls));
                 return calls;
             }
 
             onFallback?.Invoke("reason=no_tool_calls");
-            return fallbackPlanner.Plan(message);
+            var fallbackCalls = fallbackPlanner.Plan(message);
+            onDecision?.Invoke(BuildDecisionDetails("fallback", "no_tool_calls", fallbackCalls));
+            return fallbackCalls;
         }
         catch (Exception ex)
         {
-            onFallback?.Invoke($"reason=openai_exception exception_type={ex.GetType().Name}");
-            return fallbackPlanner.Plan(message);
+            var safeMessage = SanitizeForLog(ex.Message);
+            onFallback?.Invoke($"reason=openai_exception exception_type={ex.GetType().Name} exception_message={safeMessage}");
+            var fallbackCalls = fallbackPlanner.Plan(message);
+            onDecision?.Invoke(BuildDecisionDetails("fallback", "openai_exception", fallbackCalls));
+            return fallbackCalls;
         }
+    }
+
+    private static string BuildDecisionDetails(string source, string reason, IReadOnlyList<ToolCall> calls)
+    {
+        var tools = calls.Count == 0
+            ? "none"
+            : string.Join(",", calls.Select(static c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase));
+        return $"source={source} reason={reason} tool_calls={calls.Count} tools={tools}";
+    }
+
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "empty";
+        }
+
+        var compact = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return compact.Length <= 256 ? compact : compact[..256];
     }
 }
 
 public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
 {
+    private const int MaxRetries = 5;
+    private const int DefaultBaseDelaySec = 1;
+    private const int DefaultMaxDelaySec = 60;
+
     private static readonly JsonSerializerOptions s_jsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -52,17 +85,16 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
 
     public async Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
     {
-        using var req = CreateRequest(settings, new
+        var payload = new
         {
             model = settings.Model,
             input = message,
             tool_choice = "auto",
             tools = OpenAiToolSchema.Build()
-        });
-
-        using var res = await httpClient.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        };
+        var payloadJson = JsonSerializer.Serialize(payload, s_jsonOptions);
+        var responseJson = await SendResponsesRequestWithRetryAsync("plan_tools", settings, payloadJson, ct);
+        using var doc = JsonDocument.Parse(responseJson);
         return OpenAiResponseParser.ParseToolCalls(doc.RootElement);
     }
 
@@ -79,24 +111,209 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
         }
 
         var dataJson = JsonSerializer.Serialize(data);
-        using var req = CreateRequest(settings, new
+        var payload = new
         {
             model = settings.Model,
             input = $"Summarize order exception in one sentence. OrderId={orderId}; SummaryCode={summaryCode}; Data={dataJson}"
-        });
-
-        using var res = await httpClient.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        };
+        var payloadJson = JsonSerializer.Serialize(payload, s_jsonOptions);
+        var responseJson = await SendResponsesRequestWithRetryAsync("summarize_order_exception", settings, payloadJson, ct);
+        using var doc = JsonDocument.Parse(responseJson);
         return OpenAiResponseParser.ParseTextOutput(doc.RootElement);
     }
 
-    private static HttpRequestMessage CreateRequest(OpenAiPlannerSettings settings, object payload)
+    private async Task<string> SendResponsesRequestWithRetryAsync(
+        string operation,
+        OpenAiPlannerSettings settings,
+        string payloadJson,
+        CancellationToken ct)
+    {
+        var baseDelaySec = ReadDelaySeconds("OPENAI_RETRY_BASE_DELAY_SEC", DefaultBaseDelaySec);
+        var maxDelaySec = ReadDelaySeconds("OPENAI_RETRY_MAX_DELAY_SEC", DefaultMaxDelaySec);
+
+        for (var attempt = 0; ; attempt++)
+        {
+            using var req = CreateRequest(settings, payloadJson);
+            TryLogPayload(
+                "openai_request endpoint=responses operation={Operation} attempt={Attempt} payload={Payload}",
+                payloadJson,
+                null,
+                operation,
+                attempt + 1);
+
+            try
+            {
+                using var res = await httpClient.SendAsync(req, ct);
+                var responseJson = await res.Content.ReadAsStringAsync(ct);
+                TryLogPayload(
+                    "openai_response endpoint=responses operation={Operation} attempt={Attempt} status={Status} body={Body}",
+                    responseJson,
+                    (int)res.StatusCode,
+                    operation,
+                    attempt + 1);
+
+                if (res.IsSuccessStatusCode)
+                {
+                    if (attempt > 0)
+                    {
+                        TryLogRetrySucceeded(operation, attempt + 1, (int)res.StatusCode);
+                    }
+                    return responseJson;
+                }
+
+                if (!IsRetryableStatusCode((int)res.StatusCode) || attempt >= MaxRetries)
+                {
+                    throw new HttpRequestException(
+                        $"OpenAI request failed with status {(int)res.StatusCode}. body={SanitizeForLog(responseJson)}",
+                        null,
+                        res.StatusCode);
+                }
+
+                var (delay, source) = ComputeRetryDelay(res.Headers.RetryAfter, attempt, baseDelaySec, maxDelaySec);
+                TryLogRetry(operation, attempt + 1, "http_status", (int)res.StatusCode, delay, source, null);
+                await Task.Delay(delay, ct);
+            }
+            catch (Exception ex) when (IsRetryableException(ex, ct) && attempt < MaxRetries)
+            {
+                var delay = ComputeExponentialBackoffWithJitter(attempt, baseDelaySec, maxDelaySec);
+                TryLogRetry(operation, attempt + 1, "exception", null, delay, "exponential_jitter", ex.GetType().Name);
+                await Task.Delay(delay, ct);
+            }
+        }
+    }
+
+    private static HttpRequestMessage CreateRequest(OpenAiPlannerSettings settings, string payloadJson)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, new Uri(settings.BaseUri, "responses"));
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {settings.ApiKey}");
-        request.Content = JsonContent.Create(payload, options: s_jsonOptions);
+        request.Content = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
         return request;
+    }
+
+    private static bool IsPayloadLoggingEnabled()
+    {
+        return string.Equals(Environment.GetEnvironmentVariable("OPENAI_LOG_PAYLOADS"), "1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void TryLogPayload(
+        string messageTemplate,
+        string content,
+        int? statusCode = null,
+        string? operation = null,
+        int? attempt = null)
+    {
+        if (!IsPayloadLoggingEnabled())
+        {
+            return;
+        }
+
+        var compact = content.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        var bounded = compact.Length <= 4000 ? compact : compact[..4000];
+
+        if (statusCode.HasValue)
+        {
+            var message = messageTemplate
+                .Replace("{Operation}", operation ?? "unknown", StringComparison.Ordinal)
+                .Replace("{Attempt}", attempt?.ToString() ?? "0", StringComparison.Ordinal)
+                .Replace("{Status}", statusCode.Value.ToString(), StringComparison.Ordinal)
+                .Replace("{Body}", bounded, StringComparison.Ordinal)
+                .Replace("{Payload}", bounded, StringComparison.Ordinal);
+            Console.WriteLine($"info: OpenAiDiagnostics[0]{Environment.NewLine}      {message}");
+            return;
+        }
+
+        var payloadMessage = messageTemplate
+            .Replace("{Operation}", operation ?? "unknown", StringComparison.Ordinal)
+            .Replace("{Attempt}", attempt?.ToString() ?? "0", StringComparison.Ordinal)
+            .Replace("{Payload}", bounded, StringComparison.Ordinal)
+            .Replace("{Body}", bounded, StringComparison.Ordinal);
+        Console.WriteLine($"info: OpenAiDiagnostics[0]{Environment.NewLine}      {payloadMessage}");
+    }
+
+    private static bool IsRetryableStatusCode(int statusCode)
+    {
+        return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+    }
+
+    private static bool IsRetryableException(Exception ex, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        return ex is HttpRequestException || ex is TaskCanceledException;
+    }
+
+    private static (TimeSpan Delay, string Source) ComputeRetryDelay(
+        RetryConditionHeaderValue? retryAfter,
+        int attempt,
+        int baseDelaySec,
+        int maxDelaySec)
+    {
+        if (retryAfter?.Delta is TimeSpan delta)
+        {
+            return (delta > TimeSpan.Zero ? delta : TimeSpan.Zero, "retry_after");
+        }
+
+        if (retryAfter?.Date is DateTimeOffset date)
+        {
+            var delay = date - DateTimeOffset.UtcNow;
+            return (delay > TimeSpan.Zero ? delay : TimeSpan.Zero, "retry_after");
+        }
+
+        return (ComputeExponentialBackoffWithJitter(attempt, baseDelaySec, maxDelaySec), "exponential_jitter");
+    }
+
+    private static TimeSpan ComputeExponentialBackoffWithJitter(int attempt, int baseDelaySec, int maxDelaySec)
+    {
+        var exponential = baseDelaySec * Math.Pow(2, attempt);
+        var jitter = Random.Shared.NextDouble();
+        var delaySeconds = Math.Min(maxDelaySec, exponential + jitter);
+        return TimeSpan.FromSeconds(delaySeconds);
+    }
+
+    private static int ReadDelaySeconds(string envName, int defaultValue)
+    {
+        var raw = Environment.GetEnvironmentVariable(envName);
+        if (!int.TryParse(raw, out var parsed) || parsed <= 0)
+        {
+            return defaultValue;
+        }
+
+        return parsed;
+    }
+
+    private static void TryLogRetry(
+        string operation,
+        int attempt,
+        string reason,
+        int? statusCode,
+        TimeSpan delay,
+        string source,
+        string? exceptionType)
+    {
+        var status = statusCode.HasValue ? statusCode.Value.ToString() : "n/a";
+        var exception = exceptionType ?? "n/a";
+        Console.WriteLine(
+            $"warn: OpenAiDiagnostics[0]{Environment.NewLine}      openai_retry operation={operation} attempt={attempt} reason={reason} status={status} exception_type={exception} delay_ms={(int)delay.TotalMilliseconds} delay_source={source}");
+    }
+
+    private static void TryLogRetrySucceeded(string operation, int attempts, int statusCode)
+    {
+        Console.WriteLine(
+            $"info: OpenAiDiagnostics[0]{Environment.NewLine}      openai_retry_succeeded operation={operation} attempts={attempts} final_status={statusCode}");
+    }
+
+    private static string SanitizeForLog(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "empty";
+        }
+
+        var compact = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return compact.Length <= 256 ? compact : compact[..256];
     }
 }
 

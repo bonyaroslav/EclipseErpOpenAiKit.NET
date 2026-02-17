@@ -25,7 +25,8 @@ builder.Services.TryAddSingleton<IAiPlanner>(sp =>
         openAiApiKey,
         openAiMode,
         openAiClient,
-        onFallback: details => logger.LogWarning("openai_planner_fallback {Details}", details));
+        onFallback: details => logger.LogWarning("openai_planner_fallback {Details}", details),
+        onDecision: details => logger.LogInformation("openai_planner_decision {Details}", details));
 });
 builder.Services.TryAddSingleton<IOrderExceptionSummarizer>(sp =>
 {

@@ -96,6 +96,9 @@ Every `/api/chat` response returns:
 $env:OPENAI_API_KEY = "your-key"
 $env:OPENAI_MODE = "emulated" # default
 $env:OPENAI_SUMMARIZE = "1"    # optional order-exception summary
+$env:OPENAI_LOG_PAYLOADS = "1" # temporary diagnostics: logs OpenAI request/response JSON bodies
+$env:OPENAI_RETRY_BASE_DELAY_SEC = "1" # adaptive retry base delay
+$env:OPENAI_RETRY_MAX_DELAY_SEC = "60" # adaptive retry max delay cap
 ```
 
 Modes:
@@ -103,5 +106,12 @@ Modes:
 - `OPENAI_MODE=real`: OpenAI planner uses tool/function-calling HTTP path and falls back to deterministic planner on failure.
 - `OPENAI_MODE=off`: forces deterministic offline planner.
 - `OPENAI_SUMMARIZE=1`: enables optional OpenAI-backed order exception summary (falls back to deterministic summary on failure).
+- `OPENAI_LOG_PAYLOADS=1`: logs OpenAI request/response payload bodies to console for diagnostics (disable after demo/troubleshooting).
+- `OPENAI_RETRY_BASE_DELAY_SEC=1`: base delay for retry backoff when `Retry-After` is not returned.
+- `OPENAI_RETRY_MAX_DELAY_SEC=60`: max delay cap for retry backoff.
+
+OpenAI retry behavior:
+- If OpenAI response includes `Retry-After`, gateway waits exactly that delay.
+- Otherwise, gateway uses exponential backoff with jitter: ~1s, ~2s, ~4s, ~8s, ~16s (plus 0-1s random jitter), capped by `OPENAI_RETRY_MAX_DELAY_SEC`.
 
 If key is not set, offline mode remains active regardless of mode.

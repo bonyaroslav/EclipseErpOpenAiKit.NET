@@ -11,7 +11,8 @@ public static class PlannerFactory
         string? openAiMode = null,
         IOpenAiClient? openAiClient = null,
         IAiPlanner? fallbackPlanner = null,
-        Action<string>? onFallback = null)
+        Action<string>? onFallback = null,
+        Action<string>? onDecision = null)
     {
         var fallback = fallbackPlanner ?? new FakePlanner();
         if (!CanUseOpenAi(openAiApiKey, openAiMode))
@@ -20,7 +21,7 @@ public static class PlannerFactory
         }
 
         var settings = BuildSettings(openAiApiKey!, openAiMode, enableSummarization: false);
-        return new OpenAiPlanner(openAiClient ?? HttpOpenAiClient.CreateDefault(), fallback, settings, onFallback);
+        return new OpenAiPlanner(openAiClient ?? HttpOpenAiClient.CreateDefault(), fallback, settings, onFallback, onDecision);
     }
 
     public static IOrderExceptionSummarizer CreateSummarizer(
