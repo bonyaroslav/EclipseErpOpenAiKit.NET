@@ -334,6 +334,105 @@ public class ErpConnectorTests
     }
 }
 
+public class OpenAiClientLoggingTests
+{
+    private static readonly SemaphoreSlim s_logEnvGate = new(1, 1);
+
+    [Fact]
+    public async Task PlanToolsAsync_WhenPayloadLoggingFlagHasWhitespace_LogsRequestAndResponsePayloads()
+    {
+        await s_logEnvGate.WaitAsync();
+        try
+        {
+            var originalEnv = Environment.GetEnvironmentVariable("OPENAI_LOG_PAYLOADS");
+            var originalOut = Console.Out;
+            using var writer = new StringWriter();
+
+            try
+            {
+                Environment.SetEnvironmentVariable("OPENAI_LOG_PAYLOADS", "  \"1\"  ");
+                Console.SetOut(writer);
+
+                using var handler = new CapturingHandler(_ =>
+                    JsonResponse("""{"output":[]}"""));
+                using var client = new HttpClient(handler);
+                var openAiClient = new HttpOpenAiClient(client);
+
+                _ = await openAiClient.PlanToolsAsync("hello", new OpenAiPlannerSettings { ApiKey = "demo-key" }, CancellationToken.None);
+
+                var logs = writer.ToString();
+                Assert.Contains("openai_request endpoint=responses operation=plan_tools attempt=1 payload=", logs);
+                Assert.Contains("openai_response endpoint=responses operation=plan_tools attempt=1 status=200 body=", logs);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+                Environment.SetEnvironmentVariable("OPENAI_LOG_PAYLOADS", originalEnv);
+            }
+        }
+        finally
+        {
+            s_logEnvGate.Release();
+        }
+    }
+
+    [Fact]
+    public async Task PlanToolsAsync_WhenPayloadLoggingFlagDisabled_DoesNotLogPayloads()
+    {
+        await s_logEnvGate.WaitAsync();
+        try
+        {
+            var originalEnv = Environment.GetEnvironmentVariable("OPENAI_LOG_PAYLOADS");
+            var originalOut = Console.Out;
+            using var writer = new StringWriter();
+
+            try
+            {
+                Environment.SetEnvironmentVariable("OPENAI_LOG_PAYLOADS", "0");
+                Console.SetOut(writer);
+
+                using var handler = new CapturingHandler(_ =>
+                    JsonResponse("""{"output":[]}"""));
+                using var client = new HttpClient(handler);
+                var openAiClient = new HttpOpenAiClient(client);
+
+                _ = await openAiClient.PlanToolsAsync("hello", new OpenAiPlannerSettings { ApiKey = "demo-key" }, CancellationToken.None);
+
+                var logs = writer.ToString();
+                Assert.DoesNotContain("openai_request endpoint=responses operation=plan_tools attempt=1 payload=", logs);
+                Assert.DoesNotContain("openai_response endpoint=responses operation=plan_tools attempt=1 status=200 body=", logs);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+                Environment.SetEnvironmentVariable("OPENAI_LOG_PAYLOADS", originalEnv);
+            }
+        }
+        finally
+        {
+            s_logEnvGate.Release();
+        }
+    }
+
+    private static HttpResponseMessage JsonResponse(string json)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+
+    private sealed class CapturingHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+    {
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder = responder;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(_responder(request));
+        }
+    }
+}
+
 internal sealed class StubOpenAiClient(IReadOnlyList<ToolCall> calls, string? summary = null) : IOpenAiClient
 {
     public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)

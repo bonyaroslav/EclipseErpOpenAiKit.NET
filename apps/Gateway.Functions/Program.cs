@@ -49,12 +49,19 @@ builder.Services.AddSingleton<IChatToolHandler, ExplainOrderExceptionToolHandler
 builder.Services.AddSingleton<ChatOrchestrator>();
 
 var app = builder.Build();
+var openAiLogPayloads = config["OPENAI_LOG_PAYLOADS"];
+var isOpenAiPayloadLoggingEnabled =
+    string.Equals(openAiLogPayloads?.Trim().Trim('"', '\''), "1", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(openAiLogPayloads?.Trim().Trim('"', '\''), "true", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(openAiLogPayloads?.Trim().Trim('"', '\''), "yes", StringComparison.OrdinalIgnoreCase)
+    || string.Equals(openAiLogPayloads?.Trim().Trim('"', '\''), "on", StringComparison.OrdinalIgnoreCase);
 
 app.Logger.LogInformation(
-    "gateway_startup openai_mode={OpenAiMode} openai_key_present={OpenAiKeyPresent} openai_summarize={OpenAiSummarize}",
+    "gateway_startup openai_mode={OpenAiMode} openai_key_present={OpenAiKeyPresent} openai_summarize={OpenAiSummarize} openai_log_payloads={OpenAiLogPayloads}",
     string.IsNullOrWhiteSpace(config["OPENAI_MODE"]) ? "emulated" : config["OPENAI_MODE"],
     !string.IsNullOrWhiteSpace(config["OPENAI_API_KEY"]),
-    string.Equals(config["OPENAI_SUMMARIZE"], "1", StringComparison.OrdinalIgnoreCase));
+    string.Equals(config["OPENAI_SUMMARIZE"], "1", StringComparison.OrdinalIgnoreCase),
+    isOpenAiPayloadLoggingEnabled);
 
 app.MapPost("/api/chat", async (
     ChatRequest request,

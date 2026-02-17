@@ -192,7 +192,31 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
 
     private static bool IsPayloadLoggingEnabled()
     {
-        return string.Equals(Environment.GetEnvironmentVariable("OPENAI_LOG_PAYLOADS"), "1", StringComparison.OrdinalIgnoreCase);
+        return IsTruthyFlag(Environment.GetEnvironmentVariable("OPENAI_LOG_PAYLOADS"));
+    }
+
+    internal static bool IsTruthyFlag(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        var normalized = raw.Trim();
+        if (normalized.Length >= 2)
+        {
+            var startsWithQuote = normalized[0] is '"' or '\'';
+            var endsWithQuote = normalized[^1] is '"' or '\'';
+            if (startsWithQuote && endsWithQuote)
+            {
+                normalized = normalized[1..^1].Trim();
+            }
+        }
+
+        return normalized.Equals("1", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("on", StringComparison.OrdinalIgnoreCase);
     }
 
     private void TryLogPayload(
