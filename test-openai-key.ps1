@@ -30,7 +30,7 @@ $headers = @{
 }
 
 $body = @{
-  model = "gpt-4.1-mini"
+  model = "gpt-5-mini"
   input = "Reply with exactly: OK"
 } | ConvertTo-Json -Depth 5
 

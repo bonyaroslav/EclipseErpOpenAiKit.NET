@@ -26,7 +26,7 @@ public interface IOrderExceptionSummarizer
 public sealed class OpenAiPlannerSettings
 {
     public required string ApiKey { get; init; }
-    public string Model { get; init; } = "gpt-4.1-mini";
+    public string Model { get; init; } = "gpt-5-mini";
     public Uri BaseUri { get; init; } = new("https://api.openai.com/v1/");
     public bool EnableSummarization { get; init; }
     public bool EmulateToolCalling { get; init; } = true;
