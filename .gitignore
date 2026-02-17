@@ -11,3 +11,4 @@ obj/
 local.settings.json
 .dotnet/
 .nuget/
+apps/Gateway.Functions/.idempotency/

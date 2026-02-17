@@ -10,12 +10,22 @@ var config = builder.Configuration;
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 
+builder.Services.AddHttpClient<IOpenAiClient, HttpOpenAiClient>(http =>
+{
+    http.Timeout = TimeSpan.FromSeconds(30);
+});
+
 builder.Services.TryAddSingleton<IAiPlanner>(sp =>
 {
     var openAiApiKey = config["OPENAI_API_KEY"];
     var openAiMode = config["OPENAI_MODE"];
     var openAiClient = sp.GetService<IOpenAiClient>();
-    return PlannerFactory.Create(openAiApiKey, openAiMode, openAiClient);
+    var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("OpenAiPlanner");
+    return PlannerFactory.Create(
+        openAiApiKey,
+        openAiMode,
+        openAiClient,
+        onFallback: details => logger.LogWarning("openai_planner_fallback {Details}", details));
 });
 builder.Services.TryAddSingleton<IOrderExceptionSummarizer>(sp =>
 {
@@ -38,6 +48,12 @@ builder.Services.AddSingleton<IChatToolHandler, ExplainOrderExceptionToolHandler
 builder.Services.AddSingleton<ChatOrchestrator>();
 
 var app = builder.Build();
+
+app.Logger.LogInformation(
+    "gateway_startup openai_mode={OpenAiMode} openai_key_present={OpenAiKeyPresent} openai_summarize={OpenAiSummarize}",
+    string.IsNullOrWhiteSpace(config["OPENAI_MODE"]) ? "emulated" : config["OPENAI_MODE"],
+    !string.IsNullOrWhiteSpace(config["OPENAI_API_KEY"]),
+    string.Equals(config["OPENAI_SUMMARIZE"], "1", StringComparison.OrdinalIgnoreCase));
 
 app.MapPost("/api/chat", async (
     ChatRequest request,

@@ -1,0 +1,7 @@
+$env:OPENAI_API_KEY = Read-Host "Enter OPENAI_API_KEY"
+$env:OPENAI_MODE = "real"
+$env:OPENAI_SUMMARIZE = "1"
+
+"OPENAI_MODE=$env:OPENAI_MODE"
+"OPENAI_SUMMARIZE=$env:OPENAI_SUMMARIZE"
+"OPENAI_API_KEY set? " + (-not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY))

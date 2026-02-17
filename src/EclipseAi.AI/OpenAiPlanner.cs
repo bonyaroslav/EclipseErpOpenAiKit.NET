@@ -5,22 +5,34 @@ using EclipseAi.Domain;
 
 namespace EclipseAi.AI;
 
-public sealed class OpenAiPlanner(IOpenAiClient client, IAiPlanner fallbackPlanner, OpenAiPlannerSettings settings) : IAiPlanner
+public sealed class OpenAiPlanner(
+    IOpenAiClient client,
+    IAiPlanner fallbackPlanner,
+    OpenAiPlannerSettings settings,
+    Action<string>? onFallback = null) : IAiPlanner
 {
     public IReadOnlyList<ToolCall> Plan(string message)
     {
         if (settings.EmulateToolCalling)
         {
+            onFallback?.Invoke("reason=emulated_mode");
             return fallbackPlanner.Plan(message);
         }
 
         try
         {
             var calls = client.PlanToolsAsync(message, settings, CancellationToken.None).GetAwaiter().GetResult();
-            return calls.Count > 0 ? calls : fallbackPlanner.Plan(message);
+            if (calls.Count > 0)
+            {
+                return calls;
+            }
+
+            onFallback?.Invoke("reason=no_tool_calls");
+            return fallbackPlanner.Plan(message);
         }
-        catch
+        catch (Exception ex)
         {
+            onFallback?.Invoke($"reason=openai_exception exception_type={ex.GetType().Name}");
             return fallbackPlanner.Plan(message);
         }
     }
