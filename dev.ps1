@@ -25,16 +25,36 @@ switch ($Command)
     {
         $uri = 'http://localhost:5000/api/chat'
         $requests = @(
-            @{ message = 'Do we have ITEM-123 in warehouse MAD? What is available and ETA?' },
-            @{ message = 'Create a draft order for ACME: 10x ITEM-123, ship tomorrow.' },
-            @{ message = 'Why is SO-456 delayed and what should I do?' }
+            @{
+                name = 'Inventory availability check'
+                message = 'Do we have ITEM-123 in warehouse MAD? What is available and ETA?'
+            },
+            @{
+                name = 'Draft sales order creation'
+                message = 'Create a draft order for ACME: 10x ITEM-123, ship tomorrow.'
+            },
+            @{
+                name = 'Order exception explanation'
+                message = 'Why is SO-456 delayed and what should I do?'
+            }
         )
 
-        foreach ($req in $requests)
+        Write-Host "Starting demo against $uri"
+        Write-Host ''
+
+        for ($i = 0; $i -lt $requests.Count; $i++)
         {
-            $body = $req | ConvertTo-Json
+            $req = $requests[$i]
+            $body = @{ message = $req.message } | ConvertTo-Json
+            $step = $i + 1
+            Write-Host "[$step/$($requests.Count)] Scenario: $($req.name)"
+            Write-Host "[$step/$($requests.Count)] Sending request to Gateway API and waiting for response..."
+            $started = Get-Date
             $response = Invoke-RestMethod -Method Post -Uri $uri -Body $body -ContentType 'application/json'
+            $elapsedMs = [Math]::Round(((Get-Date) - $started).TotalMilliseconds, 1)
+            Write-Host "[$step/$($requests.Count)] Received response in ${elapsedMs}ms"
             $response | ConvertTo-Json -Depth 8
+            Write-Host ''
         }
     }
     'test'

@@ -63,7 +63,7 @@ public sealed class ChatOrchestrator(
 
         if (answerParts.Count == 0)
         {
-            answerParts.Add("No eligible tool call was executed.");
+            answerParts.Add(ChatResponseText.NoEligibleToolCall());
         }
 
         var response = new ChatResponse(

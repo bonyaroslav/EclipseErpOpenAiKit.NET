@@ -79,8 +79,8 @@ public sealed class ChatOrchestratorTests
             incomingCorrelationId: "corr-draft-second",
             CancellationToken.None);
 
-        Assert.Contains("Draft created:", first.Answer, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("idempotent replay", second.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("I created draft sales order", first.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reused it to avoid creating a duplicate order", second.Answer, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, erp.DraftCreateCount);
         Assert.True(auditStore.Contains("corr-draft-first"));
         Assert.True(auditStore.Contains("corr-draft-second"));

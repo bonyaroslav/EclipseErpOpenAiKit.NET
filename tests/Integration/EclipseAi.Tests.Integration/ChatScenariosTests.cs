@@ -44,8 +44,8 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
         AssertStableContract(secondResponse);
         Assert.Equal("CreateDraftSalesOrder", firstResponse.ToolCalls.Single().GetProperty("name").GetString());
         Assert.Equal("CreateDraftSalesOrder", secondResponse.ToolCalls.Single().GetProperty("name").GetString());
-        Assert.Contains("Draft created:", firstResponse.Answer, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("idempotent replay", secondResponse.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("I created draft sales order", firstResponse.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reused it to avoid creating a duplicate order", secondResponse.Answer, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, factory.FakeErp.DraftCreateCount);
         Assert.True(factory.AuditStore.Contains(firstResponse.CorrelationId));
         Assert.True(factory.AuditStore.Contains(secondResponse.CorrelationId));
@@ -336,7 +336,9 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Equal("No eligible tool call was executed.", payload.GetProperty("answer").GetString());
+        Assert.Equal(
+            "I couldn't safely execute an eligible action for that request. Please rephrase, and I can try again.",
+            payload.GetProperty("answer").GetString());
         Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
         Assert.Equal(0, factory.FakeErp.InventoryCallCount + factory.FakeErp.DraftCreateCount + factory.FakeErp.OrderExceptionCallCount);
     }
@@ -362,7 +364,9 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Equal("No eligible tool call was executed.", payload.GetProperty("answer").GetString());
+        Assert.Equal(
+            "I couldn't safely execute an eligible action for that request. Please rephrase, and I can try again.",
+            payload.GetProperty("answer").GetString());
         Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
         Assert.Equal(0, factory.FakeErp.DraftCreateCount);
     }
@@ -380,7 +384,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("couldn't execute GetInventoryAvailability", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
         Assert.Equal(0, factory.FakeErp.InventoryCallCount);
     }
@@ -405,7 +409,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("couldn't execute CreateDraftSalesOrder", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
         Assert.Equal(0, factory.FakeErp.DraftCreateCount);
     }
@@ -423,7 +427,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Contains("Tool call rejected", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("couldn't execute ExplainOrderException", payload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(payload.GetProperty("toolCalls").EnumerateArray());
         Assert.Equal(0, factory.FakeErp.OrderExceptionCallCount);
     }
@@ -458,7 +462,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         secondResponse.EnsureSuccessStatusCode();
 
         var secondPayload = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Contains("Idempotency key reuse detected", secondPayload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("was reused with a different payload", secondPayload.GetProperty("answer").GetString(), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, factory.FakeErp.DraftCreateCount);
     }
 

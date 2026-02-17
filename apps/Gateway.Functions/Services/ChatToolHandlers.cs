@@ -34,7 +34,7 @@ public sealed class InventoryToolHandler(IErpConnector erp) : IChatToolHandler
 
         var inventory = await erp.GetInventoryAsync(itemId, warehouseId, ct);
         return ToolExecutionResult.Done(
-            $"{inventory.ItemId} in {inventory.WarehouseId}: {inventory.AvailableQty} available, ETA {inventory.EtaUtc}.",
+            ChatResponseText.InventoryAvailability(inventory.ItemId, inventory.WarehouseId, inventory.AvailableQty, inventory.EtaUtc),
             new[]
             {
                 new Evidence("erp.inventory", "itemId", inventory.ItemId),
@@ -62,20 +62,20 @@ public sealed class DraftSalesOrderToolHandler(IErpConnector erp, IdempotencyCac
         if (reservation.Status == IdempotencyStatus.Existing)
         {
             return ToolExecutionResult.Done(
-                $"Draft already created: {reservation.DraftId} (idempotent replay).",
+                ChatResponseText.DraftAlreadyCreated(reservation.DraftId!),
                 new[] { new Evidence("erp.draftOrder", "draftId", reservation.DraftId) });
         }
 
         if (reservation.Status == IdempotencyStatus.InProgress)
         {
             return ToolExecutionResult.Skipped(
-                $"Draft creation already in progress for idempotency key {idempotencyKey}.");
+                ChatResponseText.DraftInProgress(idempotencyKey));
         }
 
         if (reservation.Status == IdempotencyStatus.Conflict)
         {
             return ToolExecutionResult.Skipped(
-                $"Idempotency key reuse detected with different payload: {idempotencyKey}.");
+                ChatResponseText.IdempotencyKeyConflict(idempotencyKey));
         }
 
         DraftOrderDto draft;
@@ -91,7 +91,7 @@ public sealed class DraftSalesOrderToolHandler(IErpConnector erp, IdempotencyCac
         }
 
         return ToolExecutionResult.Done(
-            $"Draft created: {draft.DraftId}. Commit remains disabled by default.",
+            ChatResponseText.DraftCreated(draft.DraftId),
             new[]
             {
                 new Evidence("erp.draftOrder", "draftId", draft.DraftId),
@@ -117,9 +117,7 @@ public sealed class ExplainOrderExceptionToolHandler(
         var context = await erp.GetOrderExceptionContextAsync(orderId, ct);
         var governedData = BuildGovernedOrderExceptionData(context.Data, redactor);
         var summary = summarizer.Summarize(context.OrderId, context.SummaryCode, governedData);
-        var answer = string.IsNullOrWhiteSpace(summary)
-            ? $"Order {context.OrderId} delayed ({context.SummaryCode})."
-            : summary;
+        var answer = ChatResponseText.OrderExceptionSummary(context.OrderId, context.SummaryCode, summary);
 
         var evidence = new List<Evidence>();
         foreach (var pair in governedData)
@@ -163,7 +161,7 @@ public sealed class ExplainOrderExceptionToolHandler(
 internal static class ToolArgReaders
 {
     public static string RejectedCallMessage(string toolName, string reason)
-        => $"Tool call rejected: {toolName} invalid arguments ({reason}).";
+        => ChatResponseText.RejectedToolCall(toolName, reason);
 
     public static bool TryBuildDraftRequest(
         IReadOnlyDictionary<string, object> args,
