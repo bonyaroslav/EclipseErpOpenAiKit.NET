@@ -94,6 +94,7 @@ Every `/api/chat` response returns:
 .\dev.ps1 up
 .\dev.ps1 run
 .\dev.ps1 demo
+.\dev.ps1 demo-infor
 .\dev.ps1 test
 ```
 

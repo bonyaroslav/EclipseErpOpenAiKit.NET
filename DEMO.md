@@ -30,9 +30,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:5000/api/chat -ContentType 
 ## Optional: Infor Mode Against Mock ERP
 
 ```powershell
-$env:ERP_MODE = "infor"
-$env:INFOR_BASE_URL = "http://localhost:5080"
-$env:INFOR_CLIENT_ID = "demo-client"
-$env:INFOR_CLIENT_SECRET = "demo-secret"
-.\dev.ps1 run
+.\dev.ps1 demo-infor
 ```
+
+`demo-infor` starts the gateway in Infor mode with defaults, waits for `/health`, runs all demo scenarios, and stops the gateway.
