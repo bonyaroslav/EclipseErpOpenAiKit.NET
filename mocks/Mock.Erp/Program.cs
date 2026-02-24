@@ -34,6 +34,37 @@ app.MapPost("/draftSalesOrders", async (HttpRequest req) =>
     return Results.Ok(dto);
 });
 
+app.MapPost("/oauth/token", () =>
+{
+    return Results.Ok(new { access_token = "mock-token-123", expires_in = 3600 });
+});
+
+app.MapPost("/orders/draft", async (HttpRequest req) =>
+{
+    var payload = await req.ReadFromJsonAsync<Dictionary<string, object>>() ?? new();
+    var idem = payload.TryGetValue("idempotencyKey", out var v) ? v?.ToString() : "missing";
+    var dto = new { draftId = $"D-{idem}", externalOrderNumber = $"EXT-{idem}", status = "DRAFT" };
+    return Results.Ok(dto);
+});
+
+app.MapGet("/orders/{orderId}/exception-context", (string orderId) =>
+{
+    var dto = new
+    {
+        orderId = orderId.ToUpperInvariant(),
+        summaryCode = "BACKORDER_HOLD_AR",
+        data = new Dictionary<string, object>
+        {
+            ["holds"] = new[] { "CREDIT_HOLD" },
+            ["backorderedSkus"] = new[] { "ITEM-123" },
+            ["arOverdueDays"] = 14,
+            ["warehouse"] = "MAD",
+            ["customerName"] = "Alice"
+        }
+    };
+    return Results.Ok(dto);
+});
+
 app.MapGet("/orderException/{orderId}", (string orderId) =>
 {
     var dto = new

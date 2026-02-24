@@ -4,6 +4,7 @@ using EclipseAi.Domain;
 using EclipseAi.Governance;
 using Gateway.Functions;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -37,10 +38,43 @@ builder.Services.TryAddSingleton<IOrderExceptionSummarizer>(sp =>
     return PlannerFactory.CreateSummarizer(openAiApiKey, openAiMode, enableSummarization, openAiClient);
 });
 builder.Services.TryAddSingleton<IRedactor, MapRedactor>();
-builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
+var erpMode = config["ERP_MODE"];
+if (string.Equals(erpMode, "infor", StringComparison.OrdinalIgnoreCase))
 {
-    http.BaseAddress = new Uri("http://localhost:5080");
-});
+    var inforBaseUrl = config["INFOR_BASE_URL"] ?? "http://localhost:5080";
+    builder.Services.AddHttpClient("InforToken", http =>
+    {
+        http.BaseAddress = new Uri(inforBaseUrl);
+        http.Timeout = TimeSpan.FromSeconds(30);
+    });
+    builder.Services.AddHttpClient("InforApi", http =>
+    {
+        http.BaseAddress = new Uri(inforBaseUrl);
+        http.Timeout = TimeSpan.FromSeconds(30);
+    });
+    builder.Services.AddSingleton<IInforTokenClient>(sp =>
+    {
+        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("InforToken");
+        var settings = new InforTokenClientSettings(
+            config["INFOR_CLIENT_ID"] ?? string.Empty,
+            config["INFOR_CLIENT_SECRET"] ?? string.Empty,
+            config["INFOR_SCOPE"],
+            config["INFOR_TOKEN_ENDPOINT"] ?? "/oauth/token");
+        return new InforTokenClient(http, settings);
+    });
+    builder.Services.AddSingleton(sp =>
+        new InforApiClient(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("InforApi"),
+            sp.GetRequiredService<IInforTokenClient>()));
+    builder.Services.AddSingleton<IErpConnector, InforErpConnector>();
+}
+else
+{
+    builder.Services.AddHttpClient<IErpConnector, HttpErpConnector>(http =>
+    {
+        http.BaseAddress = new Uri("http://localhost:5080");
+    });
+}
 builder.Services.AddSingleton<IAuditStore, FileAuditStore>();
 builder.Services.AddSingleton<IdempotencyCache>();
 builder.Services.AddSingleton<IChatToolHandler, InventoryToolHandler>();

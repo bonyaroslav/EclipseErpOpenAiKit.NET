@@ -54,11 +54,11 @@ public sealed class ChatOrchestratorTests
                 new Dictionary<string, object>
                 {
                     ["customerId"] = "ACME",
-                    ["shipDate"] = "2030-01-01",
+                    ["requestedDate"] = "2030-01-01",
                     ["idempotencyKey"] = "idem-orchestrator-001",
                     ["lines"] = new object[]
                     {
-                        new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 }
+                        new Dictionary<string, object> { ["item"] = "ITEM-123", ["qty"] = 10, ["unitPrice"] = 12.34m }
                     }
                 }));
         var erp = new FakeErpConnector();
@@ -88,8 +88,9 @@ public sealed class ChatOrchestratorTests
 
     private static void CleanupIdempotencyStore()
     {
-        var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
-        TestDirectoryCleanup.DeleteWithRetries(directory);
+        var root = Directory.GetCurrentDirectory();
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
 
     private sealed class StubPlanner(params ToolCall[] calls) : IAiPlanner

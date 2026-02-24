@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EclipseAi.AI;
 using EclipseAi.Connectors.Erp;
 using EclipseAi.Domain;
@@ -63,7 +64,7 @@ public sealed class DraftSalesOrderToolHandler(IErpConnector erp, IdempotencyCac
         {
             return ToolExecutionResult.Done(
                 ChatResponseText.DraftAlreadyCreated(reservation.DraftId!),
-                new[] { new Evidence("erp.draftOrder", "draftId", reservation.DraftId) });
+                BuildDraftEvidence(reservation.DraftId, reservation.ExternalOrderNumber, reservation.DraftStatus));
         }
 
         if (reservation.Status == IdempotencyStatus.InProgress)
@@ -82,7 +83,7 @@ public sealed class DraftSalesOrderToolHandler(IErpConnector erp, IdempotencyCac
         try
         {
             draft = await erp.CreateDraftOrderAsync(dto, ct);
-            idempotencyCache.CompleteDraft(idempotencyKey, payloadHash, draft.DraftId);
+            idempotencyCache.CompleteDraft(idempotencyKey, payloadHash, draft);
         }
         catch
         {
@@ -92,11 +93,28 @@ public sealed class DraftSalesOrderToolHandler(IErpConnector erp, IdempotencyCac
 
         return ToolExecutionResult.Done(
             ChatResponseText.DraftCreated(draft.DraftId),
-            new[]
-            {
-                new Evidence("erp.draftOrder", "draftId", draft.DraftId),
-                new Evidence("erp.draftOrder", "status", draft.Status)
-            });
+            BuildDraftEvidence(draft.DraftId, draft.ExternalOrderNumber, draft.Status));
+    }
+
+    private static IReadOnlyList<Evidence> BuildDraftEvidence(string? draftId, string? externalOrderNumber, string? status)
+    {
+        var evidence = new List<Evidence>();
+        if (!string.IsNullOrWhiteSpace(draftId))
+        {
+            evidence.Add(new Evidence("erp.draftOrder", "draftId", draftId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(externalOrderNumber))
+        {
+            evidence.Add(new Evidence("erp.draftOrder", "externalOrderNumber", externalOrderNumber));
+        }
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            evidence.Add(new Evidence("erp.draftOrder", "status", status));
+        }
+
+        return evidence;
     }
 }
 
@@ -174,7 +192,7 @@ internal static class ToolArgReaders
             return false;
         }
 
-        if (!TryGetRequiredString(args, "shipDate", out var shipDate, out error))
+        if (!TryGetRequiredString(args, "requestedDate", out var requestedDate, out error))
         {
             return false;
         }
@@ -189,7 +207,7 @@ internal static class ToolArgReaders
             return false;
         }
 
-        dto = new CreateDraftOrderDto(customerId, shipDate, lines, idempotencyKey);
+        dto = new CreateDraftOrderDto(customerId, requestedDate, lines, idempotencyKey);
         return true;
     }
 
@@ -247,7 +265,7 @@ internal static class ToolArgReaders
                 return false;
             }
 
-            if (!TryGetRequiredString(lineMap, "sku", out var sku, out error))
+            if (!TryGetRequiredString(lineMap, "item", out var item, out error))
             {
                 return false;
             }
@@ -263,7 +281,18 @@ internal static class ToolArgReaders
                 return false;
             }
 
-            lines.Add(new DraftLineDto(sku, qty));
+            if (!TryGetRequiredDecimal(lineMap, "unitPrice", out var unitPrice, out error))
+            {
+                return false;
+            }
+
+            if (unitPrice <= 0)
+            {
+                error = "invalid 'unitPrice'";
+                return false;
+            }
+
+            lines.Add(new DraftLineDto(item, qty, unitPrice));
         }
 
         if (lines.Count == 0)
@@ -301,8 +330,58 @@ internal static class ToolArgReaders
             case double doubleValue when Math.Abs(doubleValue % 1) < 0.000001:
                 value = (int)doubleValue;
                 return true;
+            case JsonElement element when element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var elementValue):
+                value = elementValue;
+                return true;
             default:
                 if (int.TryParse(raw.ToString(), out var parsed))
+                {
+                    value = parsed;
+                    return true;
+                }
+
+                error = $"invalid '{key}'";
+                return false;
+        }
+    }
+
+    private static bool TryGetRequiredDecimal(
+        IReadOnlyDictionary<string, object> args,
+        string key,
+        out decimal value,
+        out string error)
+    {
+        value = 0m;
+        error = string.Empty;
+
+        if (!args.TryGetValue(key, out var raw) || raw is null)
+        {
+            error = $"missing '{key}'";
+            return false;
+        }
+
+        switch (raw)
+        {
+            case decimal decimalValue:
+                value = decimalValue;
+                return true;
+            case double doubleValue:
+                value = Convert.ToDecimal(doubleValue);
+                return true;
+            case JsonElement element when element.ValueKind == JsonValueKind.Number && element.TryGetDecimal(out var decimalValue):
+                value = decimalValue;
+                return true;
+            case float floatValue:
+                value = Convert.ToDecimal(floatValue);
+                return true;
+            case int intValue:
+                value = intValue;
+                return true;
+            case long longValue:
+                value = longValue;
+                return true;
+            default:
+                if (decimal.TryParse(raw.ToString(), out var parsed))
                 {
                     value = parsed;
                     return true;

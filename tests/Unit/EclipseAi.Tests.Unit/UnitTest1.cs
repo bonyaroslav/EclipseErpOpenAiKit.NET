@@ -129,7 +129,7 @@ public class PlannerTests
     }
 
     [Fact]
-    public void Plan_DraftMessage_UsesDeterministicShipDate()
+    public void Plan_DraftMessage_UsesDeterministicRequestedDate()
     {
         var planner = new FakePlanner();
 
@@ -137,8 +137,13 @@ public class PlannerTests
 
         var call = Assert.Single(calls);
         Assert.Equal("CreateDraftSalesOrder", call.Name);
-        Assert.Equal("2030-01-01", call.Args["shipDate"]);
+        Assert.Equal("2030-01-01", call.Args["requestedDate"]);
         Assert.Equal("demo-key-001", call.Args["idempotencyKey"]);
+        var lines = Assert.IsType<object[]>(call.Args["lines"]);
+        var line = Assert.IsType<Dictionary<string, object>>(lines.Single());
+        Assert.Equal("ITEM-123", line["item"]);
+        Assert.Equal(10, line["qty"]);
+        Assert.Equal(42.5m, line["unitPrice"]);
     }
 
     [Fact]
@@ -279,7 +284,11 @@ public class ErpConnectorTests
             JsonResponse("""{"draftId":"D-1","status":"draft","warnings":[]}"""));
         using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5080") };
         var connector = new HttpErpConnector(client);
-        var dto = new CreateDraftOrderDto("ACME", "2030-01-01", new[] { new DraftLineDto("ITEM-123", 10) }, "idem-1");
+        var dto = new CreateDraftOrderDto(
+            "ACME",
+            "2030-01-01",
+            new[] { new DraftLineDto("ITEM-123", 10, 12.34m) },
+            "idem-1");
 
         using (CorrelationScope.Push("corr-draft-1"))
         {
@@ -466,5 +475,173 @@ internal sealed class ThrowingOpenAiClient : IOpenAiClient
         CancellationToken ct)
     {
         throw new InvalidOperationException("simulated openai failure");
+    }
+}
+
+public class InforTokenClientTests
+{
+    [Fact]
+    public async Task TokenClient_CachesToken_UntilExpiry()
+    {
+        var clock = new ManualClock(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var handler = new SequencedHandler(
+            JsonResponse("""{"access_token":"token-1","expires_in":120}"""),
+            JsonResponse("""{"access_token":"token-2","expires_in":120}"""));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var client = new InforTokenClient(
+            http,
+            new InforTokenClientSettings("client-id", "client-secret", null, "/oauth/token"),
+            clock.UtcNow);
+
+        var first = await client.GetAccessTokenAsync(CancellationToken.None);
+        var second = await client.GetAccessTokenAsync(CancellationToken.None);
+
+        Assert.Equal("token-1", first);
+        Assert.Equal("token-1", second);
+        Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task TokenClient_RefreshesAfterExpiry()
+    {
+        var clock = new ManualClock(new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using var handler = new SequencedHandler(
+            JsonResponse("""{"access_token":"token-1","expires_in":90}"""),
+            JsonResponse("""{"access_token":"token-2","expires_in":90}"""));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var client = new InforTokenClient(
+            http,
+            new InforTokenClientSettings("client-id", "client-secret", null, "/oauth/token"),
+            clock.UtcNow);
+
+        var first = await client.GetAccessTokenAsync(CancellationToken.None);
+        clock.Advance(TimeSpan.FromSeconds(61));
+        var second = await client.GetAccessTokenAsync(CancellationToken.None);
+
+        Assert.Equal("token-1", first);
+        Assert.Equal("token-2", second);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task TokenClient_Error_DoesNotLeakSecret()
+    {
+        using var handler = new SequencedHandler(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("unauthorized")
+        });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var client = new InforTokenClient(
+            http,
+            new InforTokenClientSettings("client-id", "super-secret", null, "/oauth/token"),
+            () => DateTimeOffset.UtcNow);
+
+        var ex = await Assert.ThrowsAsync<InforApiException>(() => client.GetAccessTokenAsync(CancellationToken.None));
+
+        Assert.DoesNotContain("super-secret", ex.Message, StringComparison.Ordinal);
+    }
+
+    private static HttpResponseMessage JsonResponse(string json)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+}
+
+public class InforApiClientTests
+{
+    [Fact]
+    public async Task InforApiClient_AddsBearerAndCorrelationHeaders()
+    {
+        using var handler = new CapturingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{"ok":true}""", Encoding.UTF8, "application/json")
+        });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var tokenClient = new StubTokenClient("token-abc");
+        var api = new InforApiClient(http, tokenClient);
+
+        using (CorrelationScope.Push("corr-123"))
+        {
+            _ = await api.GetAsync<Dictionary<string, object>>("/orders/123", CancellationToken.None);
+        }
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+        Assert.Equal("token-abc", request.Headers.Authorization?.Parameter);
+        Assert.True(request.Headers.TryGetValues("x-correlation-id", out var values));
+        Assert.Equal("corr-123", Assert.Single(values));
+    }
+
+    [Fact]
+    public async Task InforApiClient_NonSuccess_ThrowsSafeException()
+    {
+        using var handler = new CapturingHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        {
+            Content = new StringContent("boom")
+        });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var tokenClient = new StubTokenClient("token-secret");
+        var api = new InforApiClient(http, tokenClient);
+
+        var ex = await Assert.ThrowsAsync<InforApiException>(() =>
+            api.GetAsync<Dictionary<string, object>>("/orders/123", CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, ex.StatusCode);
+        Assert.DoesNotContain("token-secret", ex.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class StubTokenClient(string token) : IInforTokenClient
+    {
+        public Task<string> GetAccessTokenAsync(CancellationToken ct)
+        {
+            return Task.FromResult(token);
+        }
+    }
+}
+
+internal sealed class ManualClock(DateTimeOffset initial)
+{
+    private DateTimeOffset _now = initial;
+
+    public DateTimeOffset UtcNow() => _now;
+
+    public void Advance(TimeSpan delta)
+    {
+        _now = _now.Add(delta);
+    }
+}
+
+internal sealed class SequencedHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+{
+    private readonly HttpResponseMessage[] _responses = responses;
+    private int _callCount;
+
+    public int RequestCount => _callCount;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var index = Math.Min(_callCount, _responses.Length - 1);
+        var response = _responses.Length == 0
+            ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            : _responses[index];
+        _callCount++;
+        return Task.FromResult(response);
+    }
+}
+
+internal sealed class CapturingHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
+{
+    private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder = responder;
+    private readonly List<HttpRequestMessage> _requests = new();
+
+    public IReadOnlyList<HttpRequestMessage> Requests => _requests;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        _requests.Add(request);
+        return Task.FromResult(_responder(request));
     }
 }

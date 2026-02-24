@@ -371,11 +371,11 @@ internal static class OpenAiToolSchema
                 parameters = new
                 {
                     type = "object",
-                    required = new[] { "customerId", "shipDate", "lines", "idempotencyKey" },
+                    required = new[] { "customerId", "requestedDate", "lines", "idempotencyKey" },
                     properties = new Dictionary<string, object>
                     {
                         ["customerId"] = new { type = "string" },
-                        ["shipDate"] = new { type = "string" },
+                        ["requestedDate"] = new { type = "string" },
                         ["idempotencyKey"] = new { type = "string" },
                         ["lines"] = new
                         {
@@ -383,11 +383,12 @@ internal static class OpenAiToolSchema
                             items = new
                             {
                                 type = "object",
-                                required = new[] { "sku", "qty" },
+                                required = new[] { "item", "qty", "unitPrice" },
                                 properties = new Dictionary<string, object>
                                 {
-                                    ["sku"] = new { type = "string" },
-                                    ["qty"] = new { type = "integer" }
+                                    ["item"] = new { type = "string" },
+                                    ["qty"] = new { type = "integer" },
+                                    ["unitPrice"] = new { type = "number" }
                                 }
                             }
                         }

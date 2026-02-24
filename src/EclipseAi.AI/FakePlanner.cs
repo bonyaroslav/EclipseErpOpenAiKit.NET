@@ -5,7 +5,7 @@ namespace EclipseAi.AI;
 
 public sealed partial class FakePlanner : IAiPlanner
 {
-    private const string DemoShipDate = "2030-01-01";
+    private const string DemoRequestedDate = "2030-01-01";
     private const string DemoIdempotencyKey = "demo-key-001";
 
     private static readonly Regex s_salesOrderRegex = SalesOrderRegex();
@@ -55,8 +55,11 @@ public sealed partial class FakePlanner : IAiPlanner
             new Dictionary<string, object>
             {
                 ["customerId"] = "ACME",
-                ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = sku, ["qty"] = 10 } },
-                ["shipDate"] = DemoShipDate,
+                ["lines"] = new object[]
+                {
+                    new Dictionary<string, object> { ["item"] = sku, ["qty"] = 10, ["unitPrice"] = 42.5m }
+                },
+                ["requestedDate"] = DemoRequestedDate,
                 ["idempotencyKey"] = DemoIdempotencyKey
             });
     }

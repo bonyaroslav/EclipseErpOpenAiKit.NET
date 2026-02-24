@@ -45,7 +45,7 @@ public sealed class IdempotencyCache
     {
         if (string.IsNullOrWhiteSpace(key))
         {
-            return new IdempotencyReservation(IdempotencyStatus.Conflict, null);
+            return new IdempotencyReservation(IdempotencyStatus.Conflict, null, null, null);
         }
 
         var gate = _locks.GetOrAdd(key, _ => new object());
@@ -58,10 +58,10 @@ public sealed class IdempotencyCache
                 return EvaluateExisting(existing, payloadHash);
             }
 
-            var pending = new IdempotencyRecord(key, payloadHash, null, "pending", DateTimeOffset.UtcNow);
+            var pending = new IdempotencyRecord(key, payloadHash, null, null, null, "pending", DateTimeOffset.UtcNow);
             if (TryWriteNew(path, pending))
             {
-                return new IdempotencyReservation(IdempotencyStatus.Reserved, null);
+                return new IdempotencyReservation(IdempotencyStatus.Reserved, null, null, null);
             }
 
             if (TryLoad(path, out existing))
@@ -69,13 +69,13 @@ public sealed class IdempotencyCache
                 return EvaluateExisting(existing, payloadHash);
             }
 
-            return new IdempotencyReservation(IdempotencyStatus.Conflict, null);
+            return new IdempotencyReservation(IdempotencyStatus.Conflict, null, null, null);
         }
     }
 
-    public void CompleteDraft(string key, string payloadHash, string draftId)
+    public void CompleteDraft(string key, string payloadHash, DraftOrderDto draft)
     {
-        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(draftId))
+        if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(draft.DraftId))
         {
             return;
         }
@@ -85,7 +85,14 @@ public sealed class IdempotencyCache
         {
             Directory.CreateDirectory(_directory);
             var path = GetPath(key);
-            var record = new IdempotencyRecord(key, payloadHash, draftId, "completed", DateTimeOffset.UtcNow);
+            var record = new IdempotencyRecord(
+                key,
+                payloadHash,
+                draft.DraftId,
+                draft.ExternalOrderNumber,
+                draft.Status,
+                "completed",
+                DateTimeOffset.UtcNow);
             var json = JsonSerializer.Serialize(record, s_jsonOptions);
             File.WriteAllText(path, json);
         }
@@ -121,7 +128,7 @@ public sealed class IdempotencyCache
 
     public static string ComputePayloadHash(CreateDraftOrderDto dto)
     {
-        var payload = new DraftPayload(dto.CustomerId, dto.ShipDate, dto.Lines);
+        var payload = new DraftPayload(dto.CustomerId, dto.RequestedDate, dto.Lines);
         var json = JsonSerializer.Serialize(payload);
         var bytes = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(bytes);
@@ -131,20 +138,24 @@ public sealed class IdempotencyCache
     {
         if (!string.Equals(existing.PayloadHash, payloadHash, StringComparison.OrdinalIgnoreCase))
         {
-            return new IdempotencyReservation(IdempotencyStatus.Conflict, null);
+            return new IdempotencyReservation(IdempotencyStatus.Conflict, null, null, null);
         }
 
         if (!string.IsNullOrWhiteSpace(existing.DraftId))
         {
-            return new IdempotencyReservation(IdempotencyStatus.Existing, existing.DraftId);
+            return new IdempotencyReservation(
+                IdempotencyStatus.Existing,
+                existing.DraftId,
+                existing.ExternalOrderNumber,
+                existing.DraftStatus);
         }
 
         if (string.Equals(existing.Status, "pending", StringComparison.OrdinalIgnoreCase))
         {
-            return new IdempotencyReservation(IdempotencyStatus.InProgress, null);
+            return new IdempotencyReservation(IdempotencyStatus.InProgress, null, null, null);
         }
 
-        return new IdempotencyReservation(IdempotencyStatus.Conflict, null);
+        return new IdempotencyReservation(IdempotencyStatus.Conflict, null, null, null);
     }
 
     private string GetPath(string key)
@@ -181,7 +192,11 @@ public sealed class IdempotencyCache
     }
 }
 
-public sealed record IdempotencyReservation(IdempotencyStatus Status, string? DraftId);
+public sealed record IdempotencyReservation(
+    IdempotencyStatus Status,
+    string? DraftId,
+    string? ExternalOrderNumber,
+    string? DraftStatus);
 
 public enum IdempotencyStatus
 {
@@ -195,7 +210,9 @@ public sealed record IdempotencyRecord(
     string Key,
     string PayloadHash,
     string? DraftId,
+    string? ExternalOrderNumber,
+    string? DraftStatus,
     string Status,
     DateTimeOffset UpdatedUtc);
 
-public sealed record DraftPayload(string CustomerId, string ShipDate, IReadOnlyList<DraftLineDto> Lines);
+public sealed record DraftPayload(string CustomerId, string RequestedDate, IReadOnlyList<DraftLineDto> Lines);

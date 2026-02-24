@@ -10,10 +10,10 @@ A new user can clone this repo on Windows 11 and run a deterministic end-to-end 
 - No OpenAI key required (offline `FakePlanner`).
 - Optional OpenAI mode via `OPENAI_API_KEY`.
 
-## Current phase (2026-02-15)
+## Current phase (2026-02-24)
 
-- Active scope: documentation cleanup and plan/status alignment only.
-- All non-documentation engineering work is on hold until explicitly resumed.
+- Active scope: implement Infor-shaped Flow2 + Flow3 integration (OAuth2, typed API client, idempotent write, evidence allowlist).
+- Offline-first, TDD, and mock/demo stability remain non-negotiable.
 
 ## Scenarios (E2E)
 
@@ -61,13 +61,18 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - `OPENAI_MODE=off` scenario validated with deterministic doubles
     - `OPENAI_SUMMARIZE=1` + real mode validated with deterministic OpenAI client double
 
-- Next:
-  - On hold:
-    - Host migration to Azure Functions (.NET isolated) to align implementation with target architecture.
-    - Governance hardening so redaction/allowlist applies before any AI summarization call.
-    - Order exception response enrichment with explicit "next actions".
-    - Cleanup of unused placeholder classes/files.
-  - Resume checks once engineering work restarts:
-    - Run full `dotnet test`.
-    - Run `dev.ps1 demo`.
-    - Close any regressions against MVP acceptance criteria.
+- Next (in progress):
+  - Add InforTokenClient (client-credentials, cached until expiry, no secret logging).
+  - Add InforApiClient (Bearer + correlation header, sane timeout, typed exception on non-2xx, no POST retry).
+  - Wire Flow2 to `/orders/draft` with idempotent replay returning the same draft result.
+  - Wire Flow3 to `/orders/{id}/exception-context` with evidence allowlist enforced.
+  - Integration + E2E tests with in-process fake Infor endpoints.
+  - Update README and add DEMO.md for new Flow2/Flow3 usage.
+
+## Acceptance checks (this scope)
+
+- Unit tests for token caching/refresh and API headers/errors.
+- Flow2 rejects missing idempotency key; replay hits downstream once.
+- Flow3 evidence filtered to allowlisted fields only.
+- `/api/chat` E2E uses fake Infor endpoints; offline deterministic.
+- `dotnet test` passes and mock/demo path remains unchanged.

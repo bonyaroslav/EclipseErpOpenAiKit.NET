@@ -5,7 +5,9 @@ using EclipseAi.Connectors.Erp;
 using EclipseAi.Domain;
 using EclipseAi.Observability;
 using Gateway.Functions;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
@@ -132,8 +134,9 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
 
     private static void CleanupIdempotencyStore()
     {
-        var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
-        TestDirectoryCleanup.DeleteWithRetries(directory);
+        var root = Directory.GetCurrentDirectory();
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
 
     private sealed record ChatApiResponse(
@@ -250,7 +253,10 @@ public sealed class FakeErpConnector : IErpConnector
             _draftCorrelationIds.Add(CorrelationScope.Current);
         }
 
-        return Task.FromResult(new DraftOrderDto($"D-{dto.IdempotencyKey}", "draft", new[] { "ETA for one line may be +2d" }));
+        return Task.FromResult(new DraftOrderDto(
+            $"D-{dto.IdempotencyKey}",
+            $"EXT-{dto.IdempotencyKey}",
+            "DRAFT"));
     }
 
     public Task<OrderExceptionContextDto> GetOrderExceptionContextAsync(string orderId, CancellationToken ct)
@@ -353,8 +359,8 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
             new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
             {
                 ["customerId"] = "ACME",
-                ["shipDate"] = "2030-01-01",
-                ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+                ["requestedDate"] = "2030-01-01",
+                ["lines"] = new object[] { new Dictionary<string, object> { ["item"] = "ITEM-123", ["qty"] = 10, ["unitPrice"] = 12.34m } }
             })
         };
 
@@ -399,7 +405,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
             new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
             {
                 ["customerId"] = "ACME",
-                ["shipDate"] = "2030-01-01",
+                ["requestedDate"] = "2030-01-01",
                 ["idempotencyKey"] = "idem-invalid-lines",
                 ["lines"] = Array.Empty<object>()
             })
@@ -441,16 +447,16 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         var firstCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
         {
             ["customerId"] = "ACME",
-            ["shipDate"] = "2030-01-01",
+            ["requestedDate"] = "2030-01-01",
             ["idempotencyKey"] = idempotencyKey,
-            ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+            ["lines"] = new object[] { new Dictionary<string, object> { ["item"] = "ITEM-123", ["qty"] = 10, ["unitPrice"] = 12.34m } }
         });
         var secondCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
         {
             ["customerId"] = "ACME",
-            ["shipDate"] = "2030-01-01",
+            ["requestedDate"] = "2030-01-01",
             ["idempotencyKey"] = idempotencyKey,
-            ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 11 } }
+            ["lines"] = new object[] { new Dictionary<string, object> { ["item"] = "ITEM-123", ["qty"] = 11, ["unitPrice"] = 12.34m } }
         });
 
         factory.Planner.SetCalls([firstCall]);
@@ -477,9 +483,9 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
             {
                 ["customerId"] = "ACME",
                 ["customerName"] = "Alice Sensitive",
-                ["shipDate"] = "2030-01-01",
+                ["requestedDate"] = "2030-01-01",
                 ["idempotencyKey"] = "idem-audit-redact-001",
-                ["lines"] = new object[] { new Dictionary<string, object> { ["sku"] = "ITEM-123", ["qty"] = 10 } }
+                ["lines"] = new object[] { new Dictionary<string, object> { ["item"] = "ITEM-123", ["qty"] = 10, ["unitPrice"] = 12.34m } }
             })
         };
 
@@ -499,8 +505,9 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
 
     private static void CleanupIdempotencyStore()
     {
-        var directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
-        TestDirectoryCleanup.DeleteWithRetries(directory);
+        var root = Directory.GetCurrentDirectory();
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
 }
 
@@ -717,5 +724,260 @@ public sealed class DeterministicOpenAiClient(IReadOnlyList<ToolCall> calls, str
         }
 
         return Task.FromResult<string?>(summary);
+    }
+}
+
+public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClassFixture<InforChatApiFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task DraftSalesOrderScenario_Infor_IsIdempotent()
+    {
+        CleanupIdempotencyStore();
+        factory.InforServer.Reset();
+
+        var first = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
+        var second = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
+
+        AssertStableContract(first);
+        AssertStableContract(second);
+        Assert.Equal(1, factory.InforServer.DraftCallCount);
+        Assert.Equal(first.CorrelationId, factory.InforServer.DraftCorrelationIds.Single());
+        Assert.True(factory.AuditStore.Contains(first.CorrelationId));
+        Assert.True(factory.AuditStore.Contains(second.CorrelationId));
+    }
+
+    [Fact]
+    public async Task OrderExceptionScenario_Infor_UsesAllowlistedEvidenceOnly()
+    {
+        factory.InforServer.Reset();
+        var response = await PostChatAsync("Why is SO-456 delayed and what should I do?");
+
+        AssertStableContract(response);
+        Assert.Equal("ExplainOrderException", response.ToolCalls.Single().GetProperty("name").GetString());
+        AssertEvidenceContains(response.Evidence, "holds", "backorderedSkus", "arOverdueDays", "warehouse");
+        Assert.DoesNotContain(response.Evidence, x => x.GetProperty("path").GetString() == "customerName");
+        Assert.Equal(1, factory.InforServer.ExceptionCallCount);
+        Assert.Equal(response.CorrelationId, factory.InforServer.ExceptionCorrelationIds.Single());
+    }
+
+    private async Task<ChatApiResponse> PostChatAsync(string message, string? correlationId = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
+        {
+            Content = JsonContent.Create(new { message })
+        };
+
+        if (!string.IsNullOrWhiteSpace(correlationId))
+        {
+            request.Headers.TryAddWithoutValidation("x-correlation-id", correlationId);
+        }
+
+        var httpResponse = await _client.SendAsync(request);
+        httpResponse.EnsureSuccessStatusCode();
+
+        var payload = await httpResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var toolCalls = payload.GetProperty("toolCalls").EnumerateArray().ToList();
+        var evidence = payload.GetProperty("evidence").EnumerateArray().ToList();
+
+        return new ChatApiResponse(
+            payload.GetProperty("correlationId").GetString()!,
+            payload.GetProperty("answer").GetString()!,
+            toolCalls,
+            evidence,
+            payload.GetProperty("auditRef").GetString()!);
+    }
+
+    private static void AssertStableContract(ChatApiResponse response)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(response.CorrelationId));
+        Assert.False(string.IsNullOrWhiteSpace(response.Answer));
+        Assert.NotEmpty(response.ToolCalls);
+        Assert.NotEmpty(response.Evidence);
+        Assert.Equal($".audit/{response.CorrelationId}.json", response.AuditRef);
+    }
+
+    private static void AssertEvidenceContains(IReadOnlyList<JsonElement> evidence, params string[] expectedPaths)
+    {
+        var actualPaths = evidence
+            .Select(static x => x.GetProperty("path").GetString())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var expectedPath in expectedPaths)
+        {
+            Assert.Contains(expectedPath, actualPaths);
+        }
+    }
+
+    private static void CleanupIdempotencyStore()
+    {
+        var root = Directory.GetCurrentDirectory();
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
+        TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
+    }
+
+    private sealed record ChatApiResponse(
+        string CorrelationId,
+        string Answer,
+        IReadOnlyList<JsonElement> ToolCalls,
+        IReadOnlyList<JsonElement> Evidence,
+        string AuditRef);
+}
+
+public sealed class InforChatApiFactory : WebApplicationFactory<Program>
+{
+    public FakeInforServer InforServer { get; } = new();
+    public InMemoryAuditStore AuditStore { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Development");
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IErpConnector>();
+            services.RemoveAll<IAuditStore>();
+            services.RemoveAll<IInforTokenClient>();
+            services.RemoveAll<InforApiClient>();
+
+            services.AddSingleton<IAuditStore>(AuditStore);
+            services.AddSingleton<IInforTokenClient>(_ =>
+                new InforTokenClient(
+                    InforServer.CreateClient(),
+                    new InforTokenClientSettings("client-id", "client-secret", null, "/oauth/token")));
+            services.AddSingleton(sp => new InforApiClient(
+                InforServer.CreateClient(),
+                sp.GetRequiredService<IInforTokenClient>()));
+            services.AddSingleton<IErpConnector, InforErpConnector>();
+        });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            InforServer.Dispose();
+        }
+    }
+}
+
+public sealed class FakeInforServer : IDisposable
+{
+    private readonly object _gate = new();
+    private readonly WebApplication _app;
+    private readonly TestServer _server;
+    private readonly List<string?> _draftCorrelationIds = new();
+    private readonly List<string?> _exceptionCorrelationIds = new();
+
+    public int TokenCallCount { get; private set; }
+    public int DraftCallCount { get; private set; }
+    public int ExceptionCallCount { get; private set; }
+
+    public FakeInforServer()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        _app = builder.Build();
+
+        _app.MapPost("/oauth/token", () =>
+        {
+            lock (_gate)
+            {
+                TokenCallCount++;
+            }
+
+            return Results.Ok(new { access_token = "token-123", expires_in = 3600 });
+        });
+
+        _app.MapPost("/orders/draft", async (HttpRequest request) =>
+        {
+            var payload = await request.ReadFromJsonAsync<Dictionary<string, object>>() ?? new();
+            var key = payload.TryGetValue("idempotencyKey", out var raw) ? raw?.ToString() : "missing";
+            var correlationId = request.Headers["x-correlation-id"].FirstOrDefault();
+
+            lock (_gate)
+            {
+                DraftCallCount++;
+                _draftCorrelationIds.Add(correlationId);
+            }
+
+            return Results.Ok(new
+            {
+                draftId = $"D-{key}",
+                externalOrderNumber = $"EXT-{key}",
+                status = "DRAFT"
+            });
+        });
+
+        _app.MapGet("/orders/{orderId}/exception-context", (string orderId, HttpRequest request) =>
+        {
+            var correlationId = request.Headers["x-correlation-id"].FirstOrDefault();
+            lock (_gate)
+            {
+                ExceptionCallCount++;
+                _exceptionCorrelationIds.Add(correlationId);
+            }
+
+            var data = new Dictionary<string, object>
+            {
+                ["holds"] = new[] { "CREDIT_HOLD" },
+                ["backorderedSkus"] = new[] { "ITEM-123" },
+                ["arOverdueDays"] = 14,
+                ["warehouse"] = "MAD",
+                ["customerName"] = "Alice"
+            };
+
+            return Results.Ok(new { orderId, summaryCode = "BACKORDER_HOLD_AR", data });
+        });
+
+        _app.StartAsync().GetAwaiter().GetResult();
+        _server = _app.GetTestServer();
+    }
+
+    public IReadOnlyList<string?> DraftCorrelationIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _draftCorrelationIds.ToArray();
+            }
+        }
+    }
+
+    public IReadOnlyList<string?> ExceptionCorrelationIds
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _exceptionCorrelationIds.ToArray();
+            }
+        }
+    }
+
+    public HttpClient CreateClient()
+    {
+        var client = _server.CreateClient();
+        client.BaseAddress = new Uri("http://localhost");
+        return client;
+    }
+
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            TokenCallCount = 0;
+            DraftCallCount = 0;
+            ExceptionCallCount = 0;
+            _draftCorrelationIds.Clear();
+            _exceptionCorrelationIds.Clear();
+        }
+    }
+
+    public void Dispose()
+    {
+        _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 }
