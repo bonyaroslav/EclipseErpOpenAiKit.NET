@@ -50,10 +50,10 @@ This keeps the public API contract stable while making scenario growth low-risk.
 ## Scenarios
 
 1. Inventory availability (read)
-2. Draft sales order (draft-only with idempotency; Infor `/orders/draft` in progress)
-3. Order exception copilot (summary, reasons with evidence, next actions; Infor `/orders/{id}/exception-context` in progress)
+2. Draft sales order (draft-only with idempotency; Infor endpoint: `/orders/draft`)
+3. Order exception copilot (summary + governed evidence; Infor endpoint: `/orders/{id}/exception-context`)
 
-## In-progress features (Infor-shaped flows)
+## Infor-shaped flow coverage
 
 - OAuth2 client-credentials via `InforTokenClient` with cached tokens.
 - Typed `InforApiClient` that injects Bearer auth and `x-correlation-id`, with safe errors and sane timeouts.
@@ -62,7 +62,7 @@ This keeps the public API contract stable while making scenario growth low-risk.
 
 ## Current status
 
-- Active work: Infor-shaped Flow2 + Flow3 integration (OAuth2, typed API client, idempotent draft writes, evidence allowlist).
+- Infor-shaped Flow2 + Flow3 integration is implemented (OAuth2, typed API client, idempotent draft writes, evidence allowlist).
 - Inventory scenario and existing mock/demo path remain stable during this work.
 - On-hold backlog:
   - Host migration to Azure Functions (.NET isolated)

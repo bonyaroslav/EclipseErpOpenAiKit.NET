@@ -800,6 +800,20 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
         Assert.Equal(response.CorrelationId, factory.InforServer.ExceptionCorrelationIds.Single());
     }
 
+    [Fact]
+    public async Task InforCalls_IncludeBearerAuth_AndReuseCachedToken()
+    {
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
+        factory.InforServer.Reset();
+
+        _ = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
+        _ = await PostChatAsync("Why is SO-456 delayed and what should I do?");
+
+        Assert.Equal(1, factory.InforServer.TokenCallCount);
+        Assert.All(factory.InforServer.DraftAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
+        Assert.All(factory.InforServer.ExceptionAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
+    }
+
     private async Task<ChatApiResponse> PostChatAsync(string message, string? correlationId = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
@@ -922,6 +936,8 @@ public sealed class FakeInforServer : IDisposable
     private readonly TestServer _server;
     private readonly List<string?> _draftCorrelationIds = new();
     private readonly List<string?> _exceptionCorrelationIds = new();
+    private readonly List<string?> _draftAuthorizationHeaders = new();
+    private readonly List<string?> _exceptionAuthorizationHeaders = new();
 
     public int TokenCallCount { get; private set; }
     public int DraftCallCount { get; private set; }
@@ -948,11 +964,13 @@ public sealed class FakeInforServer : IDisposable
             var payload = await request.ReadFromJsonAsync<Dictionary<string, object>>() ?? new();
             var key = payload.TryGetValue("idempotencyKey", out var raw) ? raw?.ToString() : "missing";
             var correlationId = request.Headers["x-correlation-id"].FirstOrDefault();
+            var authorization = request.Headers.Authorization.ToString();
 
             lock (_gate)
             {
                 DraftCallCount++;
                 _draftCorrelationIds.Add(correlationId);
+                _draftAuthorizationHeaders.Add(authorization);
             }
 
             return Results.Ok(new
@@ -966,10 +984,12 @@ public sealed class FakeInforServer : IDisposable
         _app.MapGet("/orders/{orderId}/exception-context", (string orderId, HttpRequest request) =>
         {
             var correlationId = request.Headers["x-correlation-id"].FirstOrDefault();
+            var authorization = request.Headers.Authorization.ToString();
             lock (_gate)
             {
                 ExceptionCallCount++;
                 _exceptionCorrelationIds.Add(correlationId);
+                _exceptionAuthorizationHeaders.Add(authorization);
             }
 
             var data = new Dictionary<string, object>
@@ -1010,6 +1030,28 @@ public sealed class FakeInforServer : IDisposable
         }
     }
 
+    public IReadOnlyList<string?> DraftAuthorizationHeaders
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _draftAuthorizationHeaders.ToArray();
+            }
+        }
+    }
+
+    public IReadOnlyList<string?> ExceptionAuthorizationHeaders
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _exceptionAuthorizationHeaders.ToArray();
+            }
+        }
+    }
+
     public HttpClient CreateClient()
     {
         var client = _server.CreateClient();
@@ -1026,6 +1068,8 @@ public sealed class FakeInforServer : IDisposable
             ExceptionCallCount = 0;
             _draftCorrelationIds.Clear();
             _exceptionCorrelationIds.Clear();
+            _draftAuthorizationHeaders.Clear();
+            _exceptionAuthorizationHeaders.Clear();
         }
     }
 

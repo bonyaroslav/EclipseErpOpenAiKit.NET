@@ -31,7 +31,7 @@ A new user can clone this repo on Windows 11 and run a deterministic end-to-end 
 
 ## Detailed plan
 
-See `docs/plan.md` for milestones and expanded acceptance criteria.
+See `docs/flow2-flow3-tdd-plan.md` for milestones and expanded acceptance criteria.
 
 ## Implementation status (TDD)
 
@@ -61,13 +61,9 @@ See `docs/plan.md` for milestones and expanded acceptance criteria.
     - `OPENAI_MODE=off` scenario validated with deterministic doubles
     - `OPENAI_SUMMARIZE=1` + real mode validated with deterministic OpenAI client double
 
-- Next (in progress):
-  - Add InforTokenClient (client-credentials, cached until expiry, no secret logging).
-  - Add InforApiClient (Bearer + correlation header, sane timeout, typed exception on non-2xx, no POST retry).
-  - Wire Flow2 to `/orders/draft` with idempotent replay returning the same draft result.
-  - Wire Flow3 to `/orders/{id}/exception-context` with evidence allowlist enforced.
-  - Integration + E2E tests with in-process fake Infor endpoints.
-  - Update README and add DEMO.md for new Flow2/Flow3 usage.
+- Remaining:
+  - Align OpenAPI sample contract and contract tests with current Infor-shaped Flow2/Flow3 endpoints and DTO fields.
+  - Add explicit "next actions" enrichment in order-exception response text for the demo narrative.
 
 ## Acceptance checks (this scope)
 
