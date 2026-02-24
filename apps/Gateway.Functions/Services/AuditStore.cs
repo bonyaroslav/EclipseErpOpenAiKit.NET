@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using EclipseAi.Connectors.Erp;
 using EclipseAi.Observability;
+using Microsoft.Extensions.Configuration;
 
 namespace Gateway.Functions;
 
@@ -39,7 +40,15 @@ public sealed class IdempotencyCache
     };
 
     private readonly ConcurrentDictionary<string, object> _locks = new(StringComparer.OrdinalIgnoreCase);
-    private readonly string _directory = Path.Combine(Directory.GetCurrentDirectory(), ".idempotency");
+    private readonly string _directory;
+
+    public IdempotencyCache(IConfiguration config)
+    {
+        var configured = config["IDEMPOTENCY_DIR"];
+        _directory = string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Directory.GetCurrentDirectory(), ".idempotency")
+            : configured;
+    }
 
     public IdempotencyReservation ReserveDraft(string key, string payloadHash)
     {

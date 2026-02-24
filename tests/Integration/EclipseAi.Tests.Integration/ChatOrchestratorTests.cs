@@ -3,6 +3,7 @@ using EclipseAi.Connectors.Erp;
 using EclipseAi.Domain;
 using EclipseAi.Governance;
 using Gateway.Functions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EclipseAi.Tests.Integration;
@@ -100,10 +101,11 @@ public sealed class ChatOrchestratorTests
 
     private static IReadOnlyList<IChatToolHandler> BuildHandlers(FakeErpConnector erp)
     {
+        var config = new ConfigurationBuilder().Build();
         return new IChatToolHandler[]
         {
             new InventoryToolHandler(erp),
-            new DraftSalesOrderToolHandler(erp, new IdempotencyCache()),
+            new DraftSalesOrderToolHandler(erp, new IdempotencyCache(config)),
             new ExplainOrderExceptionToolHandler(erp, new NoopOrderExceptionSummarizer(), new MapRedactor())
         };
     }

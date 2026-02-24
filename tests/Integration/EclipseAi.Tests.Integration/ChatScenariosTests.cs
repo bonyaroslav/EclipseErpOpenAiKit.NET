@@ -38,7 +38,7 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
     [Fact]
     public async Task DraftSalesOrderScenario_IsIdempotentForSamePlannerKey()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         var firstResponse = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
         var secondResponse = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
 
@@ -132,9 +132,13 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
         }
     }
 
-    private static void CleanupIdempotencyStore()
+    private static void CleanupIdempotencyStore(string? idempotencyDirectory = null)
     {
         var root = Directory.GetCurrentDirectory();
+        if (!string.IsNullOrWhiteSpace(idempotencyDirectory))
+        {
+            TestDirectoryCleanup.DeleteWithRetries(idempotencyDirectory);
+        }
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
@@ -149,12 +153,23 @@ public sealed class ChatScenariosTests(ChatApiFactory factory) : IClassFixture<C
 
 public sealed class ChatApiFactory : WebApplicationFactory<Program>
 {
+    private readonly string _idempotencyDirectory =
+        Path.Combine(Path.GetTempPath(), $"eclipse-idem-{Guid.NewGuid():N}");
+
     public FakeErpConnector FakeErp { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
+    public string IdempotencyDirectory => _idempotencyDirectory;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["IDEMPOTENCY_DIR"] = _idempotencyDirectory
+            });
+        });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IErpConnector>();
@@ -352,7 +367,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task DraftWithoutIdempotency_IsBlockedByPolicy()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         factory.FakeErp.Reset();
         var calls = new[]
         {
@@ -398,7 +413,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task InvalidDraftArgs_AreRejected()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         factory.FakeErp.Reset();
         factory.Planner.SetCalls(new[]
         {
@@ -441,7 +456,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task DraftWithSameIdempotencyKeyDifferentPayload_IsBlocked()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         factory.FakeErp.Reset();
         var idempotencyKey = $"idem-conflict-{Guid.NewGuid():N}";
         var firstCall = new ToolCall("CreateDraftSalesOrder", new Dictionary<string, object>
@@ -475,7 +490,7 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
     [Fact]
     public async Task AuditPayload_RedactsSensitiveNestedFields()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         factory.FakeErp.Reset();
         var calls = new[]
         {
@@ -503,9 +518,13 @@ public sealed class GovernanceAndAuditTests(PolicyChatApiFactory factory) : ICla
         Assert.Contains("[REDACTED]", auditJson, StringComparison.Ordinal);
     }
 
-    private static void CleanupIdempotencyStore()
+    private static void CleanupIdempotencyStore(string? idempotencyDirectory = null)
     {
         var root = Directory.GetCurrentDirectory();
+        if (!string.IsNullOrWhiteSpace(idempotencyDirectory))
+        {
+            TestDirectoryCleanup.DeleteWithRetries(idempotencyDirectory);
+        }
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
@@ -542,13 +561,24 @@ internal static class TestDirectoryCleanup
 
 public sealed class PolicyChatApiFactory : WebApplicationFactory<Program>
 {
+    private readonly string _idempotencyDirectory =
+        Path.Combine(Path.GetTempPath(), $"eclipse-idem-{Guid.NewGuid():N}");
+
     public MutablePlanner Planner { get; } = new();
     public FakeErpConnector FakeErp { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
+    public string IdempotencyDirectory => _idempotencyDirectory;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["IDEMPOTENCY_DIR"] = _idempotencyDirectory
+            });
+        });
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IAiPlanner>();
@@ -631,6 +661,9 @@ public sealed class OpenAiSummaryBehaviorTests(OpenAiSummaryFactory factory) : I
 
 public sealed class OpenAiOffFactory : WebApplicationFactory<Program>
 {
+    private readonly string _idempotencyDirectory =
+        Path.Combine(Path.GetTempPath(), $"eclipse-idem-{Guid.NewGuid():N}");
+
     public FakeErpConnector FakeErp { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
 
@@ -643,7 +676,8 @@ public sealed class OpenAiOffFactory : WebApplicationFactory<Program>
             {
                 ["OPENAI_API_KEY"] = "demo-key",
                 ["OPENAI_MODE"] = "off",
-                ["OPENAI_SUMMARIZE"] = "1"
+                ["OPENAI_SUMMARIZE"] = "1",
+                ["IDEMPOTENCY_DIR"] = _idempotencyDirectory
             });
         });
 
@@ -659,6 +693,9 @@ public sealed class OpenAiOffFactory : WebApplicationFactory<Program>
 
 public sealed class OpenAiSummaryFactory : WebApplicationFactory<Program>
 {
+    private readonly string _idempotencyDirectory =
+        Path.Combine(Path.GetTempPath(), $"eclipse-idem-{Guid.NewGuid():N}");
+
     public FakeErpConnector FakeErp { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
     public DeterministicOpenAiClient OpenAiClient { get; } = new(
@@ -674,7 +711,8 @@ public sealed class OpenAiSummaryFactory : WebApplicationFactory<Program>
             {
                 ["OPENAI_API_KEY"] = "demo-key",
                 ["OPENAI_MODE"] = "real",
-                ["OPENAI_SUMMARIZE"] = "1"
+                ["OPENAI_SUMMARIZE"] = "1",
+                ["IDEMPOTENCY_DIR"] = _idempotencyDirectory
             });
         });
 
@@ -734,7 +772,7 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
     [Fact]
     public async Task DraftSalesOrderScenario_Infor_IsIdempotent()
     {
-        CleanupIdempotencyStore();
+        CleanupIdempotencyStore(factory.IdempotencyDirectory);
         factory.InforServer.Reset();
 
         var first = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
@@ -810,9 +848,13 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
         }
     }
 
-    private static void CleanupIdempotencyStore()
+    private static void CleanupIdempotencyStore(string? idempotencyDirectory = null)
     {
         var root = Directory.GetCurrentDirectory();
+        if (!string.IsNullOrWhiteSpace(idempotencyDirectory))
+        {
+            TestDirectoryCleanup.DeleteWithRetries(idempotencyDirectory);
+        }
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, ".idempotency"));
         TestDirectoryCleanup.DeleteWithRetries(Path.Combine(root, "apps", "Gateway.Functions", ".idempotency"));
     }
@@ -827,12 +869,23 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
 
 public sealed class InforChatApiFactory : WebApplicationFactory<Program>
 {
+    private readonly string _idempotencyDirectory =
+        Path.Combine(Path.GetTempPath(), $"eclipse-idem-{Guid.NewGuid():N}");
+
     public FakeInforServer InforServer { get; } = new();
     public InMemoryAuditStore AuditStore { get; } = new();
+    public string IdempotencyDirectory => _idempotencyDirectory;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["IDEMPOTENCY_DIR"] = _idempotencyDirectory
+            });
+        });
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IErpConnector>();
