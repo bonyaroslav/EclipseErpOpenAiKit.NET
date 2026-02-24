@@ -35,7 +35,7 @@
         }
       }
     },
-    "/draftSalesOrders": {
+    "/orders/draft": {
       "post": {
         "requestBody": {
           "required": true,
@@ -61,7 +61,7 @@
         }
       }
     },
-    "/orderException/{orderId}": {
+    "/orders/{orderId}/exception-context": {
       "get": {
         "parameters": [
           {
@@ -100,18 +100,19 @@
       },
       "DraftLineDto": {
         "type": "object",
-        "required": ["sku", "qty"],
+        "required": ["item", "qty", "unitPrice"],
         "properties": {
-          "sku": { "type": "string" },
-          "qty": { "type": "integer" }
+          "item": { "type": "string" },
+          "qty": { "type": "integer" },
+          "unitPrice": { "type": "number" }
         }
       },
       "CreateDraftOrderDto": {
         "type": "object",
-        "required": ["customerId", "shipDate", "lines", "idempotencyKey"],
+        "required": ["customerId", "requestedDate", "lines", "idempotencyKey"],
         "properties": {
           "customerId": { "type": "string" },
-          "shipDate": { "type": "string" },
+          "requestedDate": { "type": "string" },
           "lines": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/DraftLineDto" }
@@ -121,14 +122,11 @@
       },
       "DraftOrderDto": {
         "type": "object",
-        "required": ["draftId", "status", "warnings"],
+        "required": ["draftId", "status"],
         "properties": {
           "draftId": { "type": "string" },
-          "status": { "type": "string" },
-          "warnings": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "externalOrderNumber": { "type": "string" },
+          "status": { "type": "string" }
         }
       },
       "OrderExceptionContextDto": {

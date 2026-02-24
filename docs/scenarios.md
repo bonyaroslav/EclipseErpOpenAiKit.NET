@@ -11,8 +11,8 @@ ERP: `GET /inventory/{itemId}?warehouse={warehouseId}`
 Input: "Create a draft order for ACME: 10x ITEM-123, ship tomorrow."
 Tool: `CreateDraftSalesOrder(customerId, lines, requestedDate, idempotencyKey)`
 ERP:
-- mock mode: `POST /draftSalesOrders`
-- infor mode: `POST /orders/draft`
+- primary (Infor-shaped): `POST /orders/draft`
+- mock compatibility: `POST /draftSalesOrders`
 Rules: allowlist + idempotency required + draft-only
 
 ## 3) Order exception copilot (WOW)
@@ -22,6 +22,6 @@ ERP calls: `/salesOrders/{id}`, `/holds`, `/lines`, `/inventory`, `/customers/{i
 Output: summary + reasons (with evidence) + next actions + optional draft customer message
 
 Current MVP implementation note:
-- mock mode uses a consolidated endpoint: `GET /orderException/{orderId}`.
-- infor mode uses: `GET /orders/{orderId}/exception-context`.
+- primary (Infor-shaped): `GET /orders/{orderId}/exception-context`.
+- mock compatibility uses a consolidated endpoint: `GET /orderException/{orderId}`.
 - Multi-endpoint expansion remains on hold.
