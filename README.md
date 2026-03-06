@@ -259,37 +259,6 @@ That modularity makes the system easier to reason about and extend.
 
 ---
 
-## Why hiring managers may care
-
-This repo signals several things that are hard to fake in a README-only project:
-
-- understanding of **system boundaries**
-- practical thinking about **AI safety in backend workflows**
-- awareness of **idempotency** and duplicate prevention
-- experience with **HTTP integration concerns** like auth, headers, and correlation
-- emphasis on **testability** over “magic demo” fragility
-- evidence of **architecture discipline** without over-engineering
-- comfort with **ERP integration constraints** and controlled operational risk
-
-In other words: it reads less like a toy AI demo, and more like a backend engineer trying to build something teams could actually discuss seriously.
-
----
-
-## Why technical buyers may care
-
-For a buyer or stakeholder, the value is not “chat for ERP.”
-
-The value is:
-
-- a realistic pattern for **AI-assisted ERP operations**
-- lower-risk workflow design through **draft-only writes**
-- explainable answers backed by **evidence**
-- easier debugging with **correlation and audit references**
-- local demoability without immediate dependency on live model calls
-- a clearer path from prototype to governed integration
-
----
-
 ## Quickstart
 
 ### Prerequisites
