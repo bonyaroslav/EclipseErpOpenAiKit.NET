@@ -1,6 +1,6 @@
 # 1. Project summary
 
-This repository appears to be a minimal, production-shaped ERP-to-OpenAI integration kit focused on Epicor Eclipse-style scenarios, implemented in .NET 10 with an HTTP gateway, ERP connector layer, governance controls, and deterministic offline AI behavior. The current runnable host is an ASP.NET Core minimal API in `apps/Gateway.Functions/Program.cs`, while `README.md`, `plan.md`, and `apps/Gateway.Functions/local.settings.example.json` show Azure Functions isolated as the intended primary host target.
+This repository is a minimal, production-minded ERP-to-OpenAI reference implementation focused on Epicor Eclipse-style scenarios, implemented in .NET 10 with an HTTP gateway, ERP connector layer, governance controls, and deterministic offline AI behavior. The runnable host is the ASP.NET Core Minimal API in `apps/Gateway.Functions/Program.cs`; the directory name and leftover Functions configuration files are historical artifacts, not the active runtime model.
 
 Problem it tries to solve:
 - Turn natural-language requests into governed ERP actions and explainable responses without making the demo or tests depend on live OpenAI.
@@ -521,8 +521,8 @@ Main technical scope:
 
 - Missing actual GitHub Actions workflow.
   - Evidence: `.github/workflows/` is empty.
-- Missing a short architecture note that reconciles the current minimal API host with the stated Azure Functions target.
-  - Evidence: `README.md` says the current host is ASP.NET Core minimal API while Azure Functions remains the primary target; `local.settings.example.json` and `host.json` still exist.
+- Legacy Functions-named artifacts remain beside the ASP.NET Core Minimal API host.
+  - Evidence: `local.settings.example.json` and `host.json` still exist, although `Gateway.Functions.csproj` uses `Microsoft.NET.Sdk.Web` and `Program.cs` builds a `WebApplication`.
 - Missing explicit README-ready screenshots or exported diagram markdown.
   - Evidence: `docs/diagrams/` contains PNG assets, but there is no lightweight architecture diagram source in Markdown/Mermaid.
 - Missing a concise limitations / non-goals section.

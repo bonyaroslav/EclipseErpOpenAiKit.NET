@@ -2,427 +2,181 @@
 
 # EclipseErpOpenAiKit.NET
 
-**Production-shaped ERP ↔ OpenAI integration kit for .NET 10**
+**A production-minded reference implementation for governed ERP tool orchestration on .NET 10**
 
-*Natural-language ERP workflows with governed tool execution, draft-only safety guardrails, deterministic offline demos, and optional real OpenAI tool-calling.*
+*The model proposes. .NET governs. The ERP executes. The audit proves.*
 
 <p>
   <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet" />
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg" />
-  <img alt="ERP Integration" src="https://img.shields.io/badge/ERP-Integration-0A66C2" />
-  <img alt="OpenAI Optional" src="https://img.shields.io/badge/OpenAI-Optional-412991" />
-  <img alt="Contract First" src="https://img.shields.io/badge/API-Contract--First-1F6FEB" />
   <img alt="Offline Demo" src="https://img.shields.io/badge/Demo-Offline%20by%20Default-2EA043" />
   <img alt="Draft Only Writes" src="https://img.shields.io/badge/Writes-Draft--Only-orange" />
-  <img alt="Idempotent Drafts" src="https://img.shields.io/badge/Idempotency-Enforced-critical" />
 </p>
 
 </div>
 
----
+## What this repository is
 
-## Why this repo exists
+`EclipseErpOpenAiKit.NET` demonstrates a small, governed path from a natural-language ERP request to a bounded backend operation. A planner proposes named tool calls; .NET policy and handlers validate them; an ERP connector performs an allowed operation; and the response carries evidence, correlation, and an audit reference.
 
-Most **ERP + AI** demos stop at prompt engineering.
+The current host is an **ASP.NET Core Minimal API** targeting .NET 10. The project remains under the legacy directory name `apps/Gateway.Functions`, but its project SDK and startup model are ASP.NET Core (`Microsoft.NET.Sdk.Web` and `WebApplication`), not Azure Functions. See [the gateway project](apps/Gateway.Functions/Gateway.Functions.csproj) and [its startup code](apps/Gateway.Functions/Program.cs).
 
-This one does not.
+The default path is deterministic and offline: it uses `FakePlanner` and a local mock ERP, so tests and the core demo do not require an OpenAI key.
 
-`EclipseErpOpenAiKit.NET` is a **reference implementation** for teams that want to explore AI-assisted ERP workflows **without skipping the hard parts**:
+## Evidence at a glance
 
-- stable backend contracts
-- governed tool execution
-- draft-only write posture
-- idempotent replay-safe behavior
-- evidence filtering and redaction
-- correlation-driven traceability
-- deterministic offline testing
-
-It is designed to show how a chat-style interface can sit **in front of ERP operations** while keeping execution bounded, observable, and testable.
-
-## What it demonstrates
-
-### ERP integration, not just chat UI
-The kit exposes a stable `/api/chat` entry point that orchestrates concrete ERP-facing scenarios instead of generating free-form responses with no system boundary.
-
-### AI as planner, not unchecked operator
-The planner proposes tool calls. Policy and handlers decide what is actually allowed to run. That separation keeps the AI layer useful **without letting it own execution**.
-
-### Safer write behavior
-Write-like behavior is intentionally constrained to **draft sales order creation**, protected by allowlisting and **mandatory idempotency keys**.
-
-### Explainable responses
-Responses include not only an answer, but also **tool call information, evidence, correlation, and audit reference**.
-
-### Offline by default
-The repo can run end-to-end with a deterministic planner and mock ERP, so demos and tests do not depend on live OpenAI behavior.
-
----
-
-## The pitch
-
-This repository is best understood as a **production-shaped integration kit** for:
-
-- technical leaders evaluating backend/integration design quality
-- teams exploring governed AI workflows over ERP systems
-- buyers who want a realistic demo of how AI can assist ERP operations
-- engineers who need a maintainable starting point, not a throwaway prototype
-
-It is **not** a generic ERP SDK and **not** a “just add prompts” showcase.
-
-It is a deliberately scoped example of how to combine:
-
-- **ERP connector abstraction**
-- **OpenAI tool/function calling**
-- **governance controls**
-- **draft-only write safety**
-- **contract-first thinking**
-- **testable orchestration**
-
----
-
-## Implemented scenarios
-
-| Scenario | What it does | Why it matters |
+| Claim | Implementation | Automated proof |
 |---|---|---|
-| **Inventory availability** | Turns a natural-language request into an ERP inventory lookup with structured evidence | Demonstrates a clean read-only ERP query path |
-| **Draft sales order creation** | Creates a **draft** order only, with idempotent replay for repeated requests | Shows mature write safety and duplicate prevention |
-| **Order exception explanation** | Retrieves ERP exception context, filters to allowlisted evidence, and optionally summarizes it | Demonstrates governance between ERP data and AI output |
+| `/api/chat` returns `correlationId`, `answer`, `toolCalls`, `evidence`, and `auditRef` | [domain records](src/EclipseAi.Domain/Models.cs), [endpoint and orchestration](apps/Gateway.Functions/Program.cs) | [scenario integration tests](tests/Integration/EclipseAi.Tests.Integration/ChatScenariosTests.cs) |
+| Unknown tools and draft writes without idempotency are blocked | [tool policy](src/EclipseAi.Governance/Governance.cs), [tool handlers](apps/Gateway.Functions/Services/ChatToolHandlers.cs) | [governance integration tests](tests/Integration/EclipseAi.Tests.Integration/ChatScenariosTests.cs) |
+| Duplicate draft requests replay instead of creating a second draft | [idempotency cache](apps/Gateway.Functions/Services/AuditStore.cs) | [orchestrator and scenario tests](tests/Integration/EclipseAi.Tests.Integration/ChatOrchestratorTests.cs) |
+| Correlation reaches ERP calls and audit output | [correlation scope](src/EclipseAi.Observability/Correlation.cs), [orchestrator](apps/Gateway.Functions/Services/ChatOrchestrator.cs) | [unit and integration tests](tests/Unit/EclipseAi.Tests.Unit/UnitTest1.cs) |
+| Order-exception evidence is allowlisted and audit data is redacted | [exception handler](apps/Gateway.Functions/Services/ChatToolHandlers.cs), [redactor](src/EclipseAi.Governance/Governance.cs) | [governance integration tests](tests/Integration/EclipseAi.Tests.Integration/ChatScenariosTests.cs) |
+| Infor-shaped HTTP calls use OAuth2 bearer tokens and safe errors | [ERP connector](src/EclipseAi.Connectors.Erp/ErpConnector.cs) | [connector unit tests](tests/Unit/EclipseAi.Tests.Unit/UnitTest1.cs), [Infor integration tests](tests/Integration/EclipseAi.Tests.Integration/ChatScenariosTests.cs) |
+| ERP endpoint shapes have a checked contract | [OpenAPI sample](contracts/eclipse.sample.openapi.json) | [contract tests](tests/Contract/EclipseAi.Tests.Contract/OpenApiContractTests.cs) |
 
----
+## Implemented capabilities
 
-## Why this is technically interesting
+### Three bounded ERP scenarios
 
-### 1) Stable API contract
-Every `/api/chat` response returns a predictable shape:
+| Scenario | Executed operation | Governed result |
+|---|---|---|
+| Inventory availability | Read item quantity and ETA for a warehouse | Structured inventory evidence |
+| Draft sales order | Create a draft only, guarded by an idempotency key | Replay-safe draft result; no automatic commit |
+| Order exception explanation | Read exception context and optionally summarize it | Allowlisted evidence with sensitive fields excluded |
 
-- `correlationId`
-- `answer`
-- `toolCalls`
-- `evidence`
-- `auditRef`
+### Planner/executor separation
 
-That makes the gateway easier to consume, test, and evolve.
+The planner returns tool proposals. `ToolPolicy`, argument readers, and named handlers decide whether a proposal can execute. The model does not call the ERP directly. The allowlist currently contains only `GetInventoryAvailability`, `CreateDraftSalesOrder`, and `ExplainOrderException`.
 
-### 2) Clear planner/executor boundary
-The AI layer does not directly “do things.”
-It proposes tool calls.
-Execution remains in the backend, behind:
+### Deterministic offline path
 
-- tool allowlisting
-- argument validation
-- governance controls
-- handler-specific logic
-- ERP connector boundaries
+Without a usable OpenAI configuration, `PlannerFactory` selects `FakePlanner`. Integration tests replace external boundaries with deterministic doubles and do not call OpenAI. See [planner selection](src/EclipseAi.AI/PlannerFactory.cs), [the fake planner](src/EclipseAi.AI/FakePlanner.cs), and [the integration suite](tests/Integration/EclipseAi.Tests.Integration/ChatScenariosTests.cs).
 
-### 3) Draft-only write posture
-The most dangerous category of workflow — writes — is intentionally constrained.
-This repo demonstrates a pattern where AI can assist with business workflows **without immediately committing live ERP mutations**.
+### Optional integrations
 
-### 4) Idempotent replay-safe behavior
-Draft order creation requires an `idempotencyKey`, stores payload hashes, and safely replays prior results for duplicate requests with the same payload.
+- `OPENAI_MODE=real` enables the current OpenAI Responses API tool-calling path.
+- `OPENAI_SUMMARIZE=1` enables optional order-exception summarization when OpenAI is configured.
+- `ERP_MODE=infor` selects the Infor-shaped OAuth2 and typed HTTP connector path.
+- The default ERP path calls the local mock ERP over HTTP.
 
-### 5) Governance before output
-Order-exception flows do not blindly return raw ERP payloads.
-They apply:
-
-- evidence allowlisting
-- field redaction
-- controlled summarization
-
-### 6) Correlation and auditability
-Incoming correlation IDs propagate through the gateway, orchestration layer, outbound ERP calls, and audit references — the kind of detail that matters in real support and operations work.
-
-### 7) Deterministic demo path
-A fake planner plus mock ERP keeps the default flow stable, reproducible, and test-friendly, while still supporting optional real OpenAI tool-calling.
-
----
-
-## Architecture at a glance
+## Architecture
 
 ```mermaid
 flowchart LR
-    C[Client / Consumer] --> G["/api/chat"]
-    G --> O[ChatOrchestrator]
-
-    O --> P[AI Planner]
-    P --> FP[FakePlanner]
-    P --> OP[OpenAiPlanner]
-
-    O --> POL[ToolPolicy / Governance]
-    POL --> H[Tool Handlers]
-
-    H --> ERP[ERP Connector]
-    ERP --> M[Mock ERP]
-    ERP --> I[Infor-shaped ERP API]
-
-    H --> RED[Redaction / Evidence Filtering]
-    O --> AUD[Audit Store]
-
-    O --> R[ChatResponse]
-    R --> OUT["correlationId / answer / toolCalls / evidence / auditRef"]
+    C[Client] --> API[ASP.NET Core Minimal API<br/>POST /api/chat]
+    API --> O[ChatOrchestrator]
+    O --> P[FakePlanner or OpenAiPlanner]
+    P --> O
+    O --> G[ToolPolicy and argument validation]
+    G --> H[Named tool handler]
+    H --> E[ERP connector]
+    E --> M[Mock ERP or Infor-shaped API]
+    H --> F[Evidence filtering]
+    O --> R[Redaction and audit store]
+    O --> OUT[Stable ChatResponse]
 ```
 
----
-
-## Request flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as Client
-    participant A as /api/chat
-    participant O as ChatOrchestrator
-    participant P as Planner
-    participant G as ToolPolicy
-    participant H as Handler
-    participant E as ERP Connector
-    participant D as Audit Store
-
-    U->>A: POST /api/chat
-    A->>O: user message + correlation id
-    O->>P: plan tools
-    P-->>O: proposed tool calls
-    O->>G: validate tool + write posture
-    G-->>O: allowed / blocked
-    O->>H: execute allowed tool
-    H->>E: ERP request
-    E-->>H: ERP data / draft result
-    H-->>O: governed result + evidence
-    O->>D: persist audit record
-    O-->>A: ChatResponse
-    A-->>U: answer + evidence + auditRef
-```
-
----
-
-## The differentiated flow: guarded draft creation
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant U as Client
-    participant P as Planner
-    participant G as ToolPolicy
-    participant H as DraftSalesOrderToolHandler
-    participant C as IdempotencyCache
-    participant E as ERP Connector
-
-    U->>P: "Create a draft sales order..."
-    P-->>G: CreateDraftSalesOrder(args, idempotencyKey)
-    G-->>H: allowed draft-only execution
-    H->>C: reserve(idempotencyKey, payloadHash)
-
-    alt first request
-        C-->>H: reservation granted
-        H->>E: create draft order
-        E-->>H: draft created
-        H->>C: complete(result)
-        H-->>U: draft response
-    else duplicate same payload
-        C-->>H: existing completed result
-        H-->>U: replay same draft response
-    else same key, different payload
-        C-->>H: conflict
-        H-->>U: blocked by policy
-    end
-```
-
----
-
-## Core qualities worth noticing
-
-### Contract-first posture
-The repository includes an OpenAPI contract artifact and contract tests, reinforcing the idea that the AI-facing gateway still depends on explicit backend contracts.
-
-### Swappable ERP integration modes
-The connector layer supports a default mock ERP path and an Infor-shaped integration path with OAuth2 client-credentials, bearer auth, and correlation header propagation.
-
-### Optional real OpenAI mode
-OpenAI can be enabled for tool/function calling and optional order-exception summarization, but the main demo path remains stable without it.
-
-### Retry-aware AI integration
-The OpenAI client wrapper includes retry behavior and optional payload diagnostics, which moves the integration beyond a single happy-path HTTP call.
-
-### Modular backend split
-The project is separated into focused areas such as:
-
-- AI planning
-- ERP connectors
-- domain contracts
-- governance
-- observability
-- gateway host
-- mock ERP
-- contract/integration/unit tests
-
-That modularity makes the system easier to reason about and extend.
-
----
+The request is one bounded planning pass followed by zero or more allowlisted handler executions. Results are assembled into the stable response contract and written to the local audit store after redaction.
 
 ## Quickstart
 
 ### Prerequisites
 
+- Windows PowerShell or PowerShell 7
 - .NET 10 SDK
-- Docker Desktop
-- Azure Functions Core Tools (recommended for local workflow)
+- Docker Desktop for `dev.ps1 up`, which starts the local service dependencies
 
-### Local flow
+Azure Functions Core Tools are not required. An OpenAI key is not required for the default path.
+
+### Local workflow
+
+Start the local services, then run the ASP.NET Core gateway on the HTTP port used by the demo:
 
 ```powershell
 .\dev.ps1 up
-.\dev.ps1 run
+dotnet run --project apps/Gateway.Functions/Gateway.Functions.csproj --no-launch-profile -p:RestoreUseStaticGraphEvaluation=true
+```
+
+In another terminal, exercise all three scenarios or run the tests:
+
+```powershell
 .\dev.ps1 demo
 .\dev.ps1 test
 ```
+
+The existing `dev.ps1 run` command remains available, but it currently consumes the legacy launch profile, whose ports differ from the demo's `http://localhost:5000` target and whose HTTPS endpoint requires a development certificate. The direct launch command above is the verified HTTP path; ticket 05 will reconcile the scripted and container workflows. Individual requests are available in [examples/requests.http](examples/requests.http) and [DEMO.md](DEMO.md).
 
 ### Optional OpenAI mode
 
 ```powershell
 $env:OPENAI_API_KEY = "your-key"
-$env:OPENAI_MODE = "emulated"     # emulated | real | off
-$env:OPENAI_SUMMARIZE = "1"       # optional order-exception summary
-$env:OPENAI_LOG_PAYLOADS = "1"    # temporary diagnostics
-$env:OPENAI_RETRY_BASE_DELAY_SEC = "1"
-$env:OPENAI_RETRY_MAX_DELAY_SEC = "60"
+$env:OPENAI_MODE = "real"        # off | emulated | real
+$env:OPENAI_SUMMARIZE = "1"      # optional
 ```
 
-> [!IMPORTANT]
-> The default experience is intentionally **offline-friendly and deterministic**. Real OpenAI mode is optional.
+Payload diagnostics are opt-in through `OPENAI_LOG_PAYLOADS=1` and can expose request content; use them only for controlled local troubleshooting.
 
----
+### Optional Infor-shaped path
 
-## Example use cases
+```powershell
+$env:INFOR_BASE_URL = "https://your-infor-endpoint"
+$env:INFOR_CLIENT_ID = "your-client-id"
+$env:INFOR_CLIENT_SECRET = "your-client-secret"
+.\dev.ps1 demo-infor
+```
 
-### Inventory question
-> “Do we have item ABC-123 in stock?”
+The included Infor path proves token acquisition, caching, bearer headers, correlation, typed endpoint calls, and safe error handling. It is an adapter example, not a claim of generic ERP coverage.
 
-Expected behavior:
-- planner selects inventory lookup
-- ERP inventory endpoint is called
-- response returns answer plus structured evidence
+## Partial capabilities and current limitations
 
-### Draft order request
-> “Create a draft sales order for customer X with item Y for next Tuesday.”
+- **Real OpenAI planning exists but is not yet hardened for unattended real-ERP writes.** Strict tool schemas, explicit response-retention settings, end-to-end cancellation, and asynchronous orchestration are modernization work tracked in [plan.md](plan.md).
+- **Real-ERP draft approval is not implemented.** The current policy requires draft posture and idempotency, but it does not yet obtain trusted approval or bind customer identity to verified server state.
+- **Persistence is local.** Audit and idempotency records are file-based examples, not durable distributed storage.
+- **The Infor contract is intentionally narrow.** It covers only the three demonstrated operations and is not a general Eclipse or Infor SDK.
+- **Local workflow proof is incomplete.** Automated tests and the direct HTTP health path are proven, but the legacy `dev.ps1 run` launch profile, repeatable CI, and a complete container smoke path are deferred modernization work.
 
-Expected behavior:
-- planner selects draft order tool
-- policy requires idempotency
-- ERP draft endpoint executes once
-- repeated request with the same payload replays the same result
+## Non-goals
 
-### Order exception question
-> “Why is order 12345 blocked?”
+This repository does not currently provide:
 
-Expected behavior:
-- planner selects exception explanation
-- ERP returns exception context
-- only allowlisted evidence fields are surfaced
-- optional summarizer produces a concise explanation
+- autonomous or multi-agent execution
+- an MCP-native server or client
+- committed live ERP writes
+- long-running chat memory or durable sessions
+- event-driven ingestion, synchronization, RAG, or vector search
+- cloud infrastructure, deployment environments, or a secrets platform
+- a packaged ERP SDK or NuGet distribution
 
----
+These boundaries keep the example focused on governed execution rather than broad platform claims.
 
-## Proof, not promises
+## Future proposals
 
-This repo already includes:
+The focused modernization order is recorded in [plan.md](plan.md):
 
-- **unit tests**
-- **integration tests**
-- **contract tests**
-- **mock ERP service**
-- **example requests**
-- **contract artifacts**
-- **supplemental design docs**
-- **deterministic local demo scripts**
+1. publish this truthful baseline
+2. harden real OpenAI request schemas, retention, async behavior, and cancellation
+3. fail closed for real-ERP draft writes and require trusted approval
+4. bind draft customer identity to verified request-scoped context
+5. prove the complete offline workflow in CI and containers
 
-That matters because the strongest part of this project is not the tagline.
-It is the combination of **behavioral proof + explicit boundaries + realistic safeguards**.
+A **bounded tool-result loop**—returning tool results to the model for another constrained planning step—remains an explicit deferred design decision. It is not implemented or implied by the current single-pass orchestrator.
 
----
-
-## Repository shape
+## Repository map
 
 ```text
-apps/
-  Gateway.Functions/         HTTP gateway host
-
-src/
-  EclipseAi.AI/             planners, OpenAI integration, summarizers
-  EclipseAi.Connectors.Erp/ ERP connector abstractions and implementations
-  EclipseAi.Domain/         response and domain models
-  EclipseAi.Governance/     tool policy, redaction, safety controls
-  EclipseAi.Observability/  correlation utilities
-
-mocks/
-  Mock.Erp/                 local ERP simulation
-
-contracts/
-  eclipse.sample.openapi.json
-
-tests/
-  Unit/
-  Integration/
-  Contract/
-
-examples/
-  requests.http
+apps/Gateway.Functions/         ASP.NET Core Minimal API host (legacy directory name)
+src/EclipseAi.AI/              deterministic and optional OpenAI planners
+src/EclipseAi.Connectors.Erp/  mock HTTP and Infor-shaped ERP connectors
+src/EclipseAi.Domain/          request, response, tool, and evidence records
+src/EclipseAi.Governance/      tool policy and redaction
+src/EclipseAi.Observability/   correlation utilities
+mocks/Mock.Erp/                local ERP simulation
+contracts/                     OpenAPI sample contract
+tests/                         unit, integration, and contract proof
 ```
 
----
-
-## Extension points
-
-This project is especially useful if you want to explore how to extend a governed ERP+AI gateway.
-
-Natural next steps include:
-
-- adding new `IChatToolHandler` scenarios
-- expanding the contract-first adapter path
-- enriching exception handling and next-action recommendations
-- replacing file-based local persistence with a more durable store
-- exporting architecture diagrams and CI badges
-- evolving the current host strategy further
-
----
-
-## Non-goals / current boundaries
-
-To keep the scope honest, this repo currently focuses on a narrow, high-signal slice of the problem.
-
-It does **not** currently demonstrate:
-
-- generic ERP coverage
-- committed live-write workflows beyond draft posture
-- event-driven ingestion or sync pipelines
-- vector search / RAG
-- long-running memory or stateful chat history
-- database-backed persistence
-- packaged SDK / NuGet distribution
-
-That is part of the point: the repo goes deeper on **governed execution quality** instead of pretending to solve everything.
-
----
-
-## Documentation
-
-Useful repo materials include:
-
-- `DEMO.md`
-- `examples/requests.http`
-- `contracts/eclipse.sample.openapi.json`
-- `docs/adding-a-new-erp.md`
-- `docs/decisions.md`
-- `docs/threat-model.md`
-- `docs/real-openai-usage-flow.md`
-- `docs/scenarios.md`
-
----
-
-## Positioning statement
-
-> **EclipseErpOpenAiKit.NET is a production-shaped .NET reference implementation for governed ERP ↔ OpenAI workflows — combining contract-first integration, draft-only safety, idempotent execution, explainable evidence, and deterministic local demos.**
-
----
+Additional design and safety context is in [docs/decisions.md](docs/decisions.md), [docs/threat-model.md](docs/threat-model.md), and [docs/adding-a-new-erp.md](docs/adding-a-new-erp.md).
 
 ## License
 

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Purpose
-Help build **EclipseErpOpenAiKit.NET**: a minimal, production-shaped **Epicor Eclipse ERP ↔ OpenAI** integration kit, hosted primarily on **Azure Functions (.NET 10 isolated)**.
+Help build **EclipseErpOpenAiKit.NET**: a minimal, production-minded reference implementation for governed **Epicor Eclipse ERP ↔ OpenAI** tool orchestration, hosted by an **ASP.NET Core Minimal API on .NET 10**.
 
 ## Source of truth
 - **README.md** defines product narrative and demo expectations.
