@@ -800,20 +800,6 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
         Assert.Equal(response.CorrelationId, factory.InforServer.ExceptionCorrelationIds.Single());
     }
 
-    [Fact]
-    public async Task InforCalls_IncludeBearerAuth_AndReuseCachedToken()
-    {
-        CleanupIdempotencyStore(factory.IdempotencyDirectory);
-        factory.InforServer.Reset();
-
-        _ = await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
-        _ = await PostChatAsync("Why is SO-456 delayed and what should I do?");
-
-        Assert.Equal(1, factory.InforServer.TokenCallCount);
-        Assert.All(factory.InforServer.DraftAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
-        Assert.All(factory.InforServer.ExceptionAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
-    }
-
     private async Task<ChatApiResponse> PostChatAsync(string message, string? correlationId = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/chat")
@@ -879,6 +865,28 @@ public sealed class InforChatScenariosTests(InforChatApiFactory factory) : IClas
         IReadOnlyList<JsonElement> ToolCalls,
         IReadOnlyList<JsonElement> Evidence,
         string AuditRef);
+}
+
+public sealed class InforAuthenticationTests(InforChatApiFactory factory) : IClassFixture<InforChatApiFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task InforCalls_IncludeBearerAuth_AndReuseCachedToken()
+    {
+        await PostChatAsync("Create a draft order for ACME: 10x ITEM-123, ship tomorrow.");
+        await PostChatAsync("Why is SO-456 delayed and what should I do?");
+
+        Assert.Equal(1, factory.InforServer.TokenCallCount);
+        Assert.All(factory.InforServer.DraftAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
+        Assert.All(factory.InforServer.ExceptionAuthorizationHeaders, h => Assert.Equal("Bearer token-123", h));
+    }
+
+    private async Task PostChatAsync(string message)
+    {
+        using var response = await _client.PostAsJsonAsync("/api/chat", new { message });
+        response.EnsureSuccessStatusCode();
+    }
 }
 
 public sealed class InforChatApiFactory : WebApplicationFactory<Program>
