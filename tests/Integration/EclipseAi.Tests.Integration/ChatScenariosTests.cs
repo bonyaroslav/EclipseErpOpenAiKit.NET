@@ -597,11 +597,12 @@ public sealed class MutablePlanner : IAiPlanner
     private readonly object _gate = new();
     private IReadOnlyList<ToolCall> _calls = Array.Empty<ToolCall>();
 
-    public IReadOnlyList<ToolCall> Plan(string message)
+    public Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            return _calls;
+            return Task.FromResult(_calls);
         }
     }
 

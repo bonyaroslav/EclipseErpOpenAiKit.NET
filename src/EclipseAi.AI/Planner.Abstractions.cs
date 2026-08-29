@@ -4,7 +4,7 @@ namespace EclipseAi.AI;
 
 public interface IAiPlanner
 {
-    IReadOnlyList<ToolCall> Plan(string message);
+    Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct);
 }
 
 public interface IOpenAiClient
@@ -20,7 +20,11 @@ public interface IOpenAiClient
 
 public interface IOrderExceptionSummarizer
 {
-    string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data);
+    Task<string?> SummarizeAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        CancellationToken ct);
 }
 
 public sealed class OpenAiPlannerSettings

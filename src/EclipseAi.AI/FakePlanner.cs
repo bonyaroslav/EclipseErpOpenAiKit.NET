@@ -12,20 +12,22 @@ public sealed partial class FakePlanner : IAiPlanner
     private static readonly Regex s_itemRegex = ItemRegex();
     private static readonly Regex s_warehouseRegex = WarehouseRegex();
 
-    public IReadOnlyList<ToolCall> Plan(string message)
+    public Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         var orderExceptionCall = TryCreateOrderExceptionCall(message);
         if (orderExceptionCall is not null)
         {
-            return [orderExceptionCall];
+            return Task.FromResult<IReadOnlyList<ToolCall>>([orderExceptionCall]);
         }
 
         if (message.Contains("draft", StringComparison.OrdinalIgnoreCase))
         {
-            return [CreateDraftOrderCall(message)];
+            return Task.FromResult<IReadOnlyList<ToolCall>>([CreateDraftOrderCall(message)]);
         }
 
-        return [CreateInventoryCall(message)];
+        return Task.FromResult<IReadOnlyList<ToolCall>>([CreateInventoryCall(message)]);
     }
 
     private static ToolCall? TryCreateOrderExceptionCall(string message)

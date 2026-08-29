@@ -96,7 +96,11 @@ public sealed class ChatOrchestratorTests
 
     private sealed class StubPlanner(params ToolCall[] calls) : IAiPlanner
     {
-        public IReadOnlyList<ToolCall> Plan(string message) => calls;
+        public Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<ToolCall>>(calls);
+        }
     }
 
     private static IReadOnlyList<IChatToolHandler> BuildHandlers(FakeErpConnector erp)

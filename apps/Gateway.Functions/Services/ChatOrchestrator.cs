@@ -22,7 +22,7 @@ public sealed class ChatOrchestrator(
         var correlationId = Correlation.FromHeaderOrNew(incomingCorrelationId);
         using var correlationScope = CorrelationScope.Push(correlationId);
 
-        var plannedCalls = planner.Plan(message);
+        var plannedCalls = await planner.PlanAsync(message, ct);
         var executedCalls = new List<ToolCall>();
         var evidence = new List<Evidence>();
         var answerParts = new List<string>();

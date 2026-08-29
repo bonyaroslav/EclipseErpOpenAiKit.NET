@@ -49,6 +49,7 @@ The bounded tool-result loop is also **deferred**. The current orchestrator perf
 - Stable chat response contract with correlation, executed tool calls, evidence, and audit reference.
 - Deterministic `FakePlanner` selected when OpenAI is unavailable, disabled, or emulated.
 - Optional OpenAI Responses API planning and order-exception summarization.
+- Strict, non-stored OpenAI requests with asynchronous planning, summarization, retries, and request cancellation.
 - Tool allowlist and handler-level argument validation.
 - Draft-only creation guarded by idempotency reservation, replay, and payload-conflict checks.
 - Evidence allowlisting and recursive sensitive-field redaction before audit persistence.
@@ -58,7 +59,6 @@ The bounded tool-result loop is also **deferred**. The current orchestrator perf
 
 ## Partial capabilities to harden
 
-- Real OpenAI planning currently uses synchronous orchestration over an asynchronous client, lacks end-to-end request cancellation, does not explicitly disable response storage, and does not yet use strict tool schemas.
 - Real OpenAI failure currently falls back to the deterministic planner, which can propose a draft write.
 - Real ERP mode has no trusted approval boundary for drafts.
 - Model-proposed customer identity is not yet replaced with verified request-scoped customer context.

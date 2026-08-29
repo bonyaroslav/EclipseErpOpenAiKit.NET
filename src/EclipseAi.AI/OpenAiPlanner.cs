@@ -13,19 +13,21 @@ public sealed class OpenAiPlanner(
     Action<string>? onFallback = null,
     Action<string>? onDecision = null) : IAiPlanner
 {
-    public IReadOnlyList<ToolCall> Plan(string message)
+    public async Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         if (settings.EmulateToolCalling)
         {
             onFallback?.Invoke("reason=emulated_mode");
-            var fallbackCalls = fallbackPlanner.Plan(message);
+            var fallbackCalls = await fallbackPlanner.PlanAsync(message, ct);
             onDecision?.Invoke(BuildDecisionDetails("fallback", "emulated_mode", fallbackCalls));
             return fallbackCalls;
         }
 
         try
         {
-            var calls = client.PlanToolsAsync(message, settings, CancellationToken.None).GetAwaiter().GetResult();
+            var calls = await client.PlanToolsAsync(message, settings, ct);
             if (calls.Count > 0)
             {
                 onDecision?.Invoke(BuildDecisionDetails("openai", "tool_calls", calls));
@@ -33,15 +35,19 @@ public sealed class OpenAiPlanner(
             }
 
             onFallback?.Invoke("reason=no_tool_calls");
-            var fallbackCalls = fallbackPlanner.Plan(message);
+            var fallbackCalls = await fallbackPlanner.PlanAsync(message, ct);
             onDecision?.Invoke(BuildDecisionDetails("fallback", "no_tool_calls", fallbackCalls));
             return fallbackCalls;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             var safeMessage = SanitizeForLog(ex.Message);
             onFallback?.Invoke($"reason=openai_exception exception_type={ex.GetType().Name} exception_message={safeMessage}");
-            var fallbackCalls = fallbackPlanner.Plan(message);
+            var fallbackCalls = await fallbackPlanner.PlanAsync(message, ct);
             onDecision?.Invoke(BuildDecisionDetails("fallback", "openai_exception", fallbackCalls));
             return fallbackCalls;
         }
@@ -89,6 +95,7 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
         {
             model = settings.Model,
             input = message,
+            store = false,
             tool_choice = "auto",
             tools = OpenAiToolSchema.Build()
         };
@@ -114,7 +121,8 @@ public sealed class HttpOpenAiClient(HttpClient httpClient) : IOpenAiClient
         var payload = new
         {
             model = settings.Model,
-            input = $"Summarize order exception in one sentence. OrderId={orderId}; SummaryCode={summaryCode}; Data={dataJson}"
+            input = $"Summarize order exception in one sentence. OrderId={orderId}; SummaryCode={summaryCode}; Data={dataJson}",
+            store = false
         };
         var payloadJson = JsonSerializer.Serialize(payload, s_jsonOptions);
         var responseJson = await SendResponsesRequestWithRetryAsync("summarize_order_exception", settings, payloadJson, ct);
@@ -352,10 +360,12 @@ internal static class OpenAiToolSchema
                 type = "function",
                 name = "GetInventoryAvailability",
                 description = "Get inventory availability for an item in a warehouse.",
+                strict = true,
                 parameters = new
                 {
                     type = "object",
                     required = new[] { "itemId", "warehouseId" },
+                    additionalProperties = false,
                     properties = new Dictionary<string, object>
                     {
                         ["itemId"] = new { type = "string" },
@@ -368,10 +378,12 @@ internal static class OpenAiToolSchema
                 type = "function",
                 name = "CreateDraftSalesOrder",
                 description = "Create a draft sales order with idempotency key.",
+                strict = true,
                 parameters = new
                 {
                     type = "object",
                     required = new[] { "customerId", "requestedDate", "lines", "idempotencyKey" },
+                    additionalProperties = false,
                     properties = new Dictionary<string, object>
                     {
                         ["customerId"] = new { type = "string" },
@@ -384,6 +396,7 @@ internal static class OpenAiToolSchema
                             {
                                 type = "object",
                                 required = new[] { "item", "qty", "unitPrice" },
+                                additionalProperties = false,
                                 properties = new Dictionary<string, object>
                                 {
                                     ["item"] = new { type = "string" },
@@ -400,10 +413,12 @@ internal static class OpenAiToolSchema
                 type = "function",
                 name = "ExplainOrderException",
                 description = "Analyze order exception reasons for a sales order.",
+                strict = true,
                 parameters = new
                 {
                     type = "object",
                     required = new[] { "orderId" },
+                    additionalProperties = false,
                     properties = new Dictionary<string, object>
                     {
                         ["orderId"] = new { type = "string" }

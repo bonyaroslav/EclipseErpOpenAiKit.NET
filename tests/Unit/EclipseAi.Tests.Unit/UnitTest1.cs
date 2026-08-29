@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using EclipseAi.AI;
 using EclipseAi.Connectors.Erp;
 using EclipseAi.Domain;
@@ -19,12 +20,12 @@ public class PlannerTests
     }
 
     [Fact]
-    public void PlannerFactory_WithApiKey_EmulatedMode_UsesOpenAiPlanner()
+    public async Task PlannerFactory_WithApiKey_EmulatedMode_UsesOpenAiPlanner()
     {
         var planner = PlannerFactory.Create(openAiApiKey: "demo-key", openAiMode: "emulated");
 
         Assert.IsType<OpenAiPlanner>(planner);
-        var call = Assert.Single(planner.Plan("Do we have ITEM-123 in warehouse MAD?"));
+        var call = Assert.Single(await planner.PlanAsync("Do we have ITEM-123 in warehouse MAD?", CancellationToken.None));
         Assert.Equal("GetInventoryAvailability", call.Name);
     }
 
@@ -37,7 +38,7 @@ public class PlannerTests
     }
 
     [Fact]
-    public void OpenAiPlanner_RealMode_UsesOpenAiClientToolCalls()
+    public async Task OpenAiPlanner_RealMode_UsesOpenAiClientToolCalls()
     {
         var client = new StubOpenAiClient(
             [new ToolCall("GetInventoryAvailability", new Dictionary<string, object> { ["itemId"] = "ITEM-777", ["warehouseId"] = "DAL" })]);
@@ -47,14 +48,14 @@ public class PlannerTests
             openAiClient: client,
             fallbackPlanner: new FakePlanner());
 
-        var call = Assert.Single(planner.Plan("any"));
+        var call = Assert.Single(await planner.PlanAsync("any", CancellationToken.None));
         Assert.Equal("GetInventoryAvailability", call.Name);
         Assert.Equal("ITEM-777", call.Args["itemId"]);
         Assert.Equal("DAL", call.Args["warehouseId"]);
     }
 
     [Fact]
-    public void OpenAiPlanner_RealMode_FallsBackWhenClientFails()
+    public async Task OpenAiPlanner_RealMode_FallsBackWhenClientFails()
     {
         var planner = PlannerFactory.Create(
             openAiApiKey: "demo-key",
@@ -62,8 +63,29 @@ public class PlannerTests
             openAiClient: new ThrowingOpenAiClient(),
             fallbackPlanner: new FakePlanner());
 
-        var call = Assert.Single(planner.Plan("Do we have ITEM-123 in warehouse MAD?"));
+        var call = Assert.Single(await planner.PlanAsync("Do we have ITEM-123 in warehouse MAD?", CancellationToken.None));
         Assert.Equal("GetInventoryAvailability", call.Name);
+    }
+
+    [Fact]
+    public async Task OpenAiPlanner_RealMode_PropagatesCallerCancellationWithoutFallback()
+    {
+        var fallback = new CountingPlanner();
+        var client = new CancellationAwareOpenAiClient();
+        var planner = PlannerFactory.Create(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            openAiClient: client,
+            fallbackPlanner: fallback);
+        using var cts = new CancellationTokenSource();
+
+        var planning = planner.PlanAsync("any", cts.Token);
+        await client.PlanStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => planning);
+
+        Assert.Equal(0, fallback.CallCount);
     }
 
     [Fact]
@@ -83,18 +105,18 @@ public class PlannerTests
     }
 
     [Fact]
-    public void SummarizerFactory_EmulatedMode_ReturnsDeterministicSummarizer()
+    public async Task SummarizerFactory_EmulatedMode_ReturnsDeterministicSummarizer()
     {
         var summarizer = PlannerFactory.CreateSummarizer(openAiApiKey: "demo-key", openAiMode: "emulated", enableSummarization: true);
 
         Assert.IsType<DeterministicOrderExceptionSummarizer>(summarizer);
         Assert.Equal(
             "Order SO-456 delayed (BACKORDER).",
-            summarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+            await summarizer.SummarizeAsync("SO-456", "BACKORDER", new Dictionary<string, object>(), CancellationToken.None));
     }
 
     [Fact]
-    public void Summarizer_RealMode_UsesOpenAiClientAndFallsBackOnError()
+    public async Task Summarizer_RealMode_UsesOpenAiClientAndFallsBackOnError()
     {
         var summarizer = PlannerFactory.CreateSummarizer(
             openAiApiKey: "demo-key",
@@ -102,7 +124,9 @@ public class PlannerTests
             enableSummarization: true,
             openAiClient: new StubOpenAiClient([], "AI summary"));
 
-        Assert.Equal("AI summary", summarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+        Assert.Equal(
+            "AI summary",
+            await summarizer.SummarizeAsync("SO-456", "BACKORDER", new Dictionary<string, object>(), CancellationToken.None));
 
         var fallbackSummarizer = PlannerFactory.CreateSummarizer(
             openAiApiKey: "demo-key",
@@ -112,15 +136,56 @@ public class PlannerTests
 
         Assert.Equal(
             "Order SO-456 delayed (BACKORDER).",
-            fallbackSummarizer.Summarize("SO-456", "BACKORDER", new Dictionary<string, object>()));
+            await fallbackSummarizer.SummarizeAsync("SO-456", "BACKORDER", new Dictionary<string, object>(), CancellationToken.None));
     }
 
     [Fact]
-    public void Plan_InventoryMessage_UsesInventoryTool()
+    public async Task Summarizer_RealMode_PropagatesCallerCancellationWithoutFallback()
+    {
+        var client = new CancellationAwareOpenAiClient();
+        var summarizer = PlannerFactory.CreateSummarizer(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            enableSummarization: true,
+            openAiClient: client);
+        using var cts = new CancellationTokenSource();
+
+        var summarizing = summarizer.SummarizeAsync(
+            "SO-456",
+            "BACKORDER",
+            new Dictionary<string, object>(),
+            cts.Token);
+        await client.SummaryStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => summarizing);
+    }
+
+    [Fact]
+    public async Task Summarizer_RealMode_CancellationWinsOverNonCancellationFailure()
+    {
+        var summarizer = PlannerFactory.CreateSummarizer(
+            openAiApiKey: "demo-key",
+            openAiMode: "real",
+            enableSummarization: true,
+            openAiClient: new ThrowingOpenAiClient());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => summarizer.SummarizeAsync(
+                "SO-456",
+                "BACKORDER",
+                new Dictionary<string, object>(),
+                cts.Token));
+    }
+
+    [Fact]
+    public async Task Plan_InventoryMessage_UsesInventoryTool()
     {
         var planner = new FakePlanner();
 
-        var calls = planner.Plan("Do we have ITEM-123 in warehouse MAD?");
+        var calls = await planner.PlanAsync("Do we have ITEM-123 in warehouse MAD?", CancellationToken.None);
 
         var call = Assert.Single(calls);
         Assert.Equal("GetInventoryAvailability", call.Name);
@@ -129,11 +194,11 @@ public class PlannerTests
     }
 
     [Fact]
-    public void Plan_DraftMessage_UsesDeterministicRequestedDate()
+    public async Task Plan_DraftMessage_UsesDeterministicRequestedDate()
     {
         var planner = new FakePlanner();
 
-        var calls = planner.Plan("Create a draft order for ACME: 10x ITEM-123");
+        var calls = await planner.PlanAsync("Create a draft order for ACME: 10x ITEM-123", CancellationToken.None);
 
         var call = Assert.Single(calls);
         Assert.Equal("CreateDraftSalesOrder", call.Name);
@@ -147,11 +212,11 @@ public class PlannerTests
     }
 
     [Fact]
-    public void Plan_OrderExceptionMessage_UsesExceptionTool()
+    public async Task Plan_OrderExceptionMessage_UsesExceptionTool()
     {
         var planner = new FakePlanner();
 
-        var calls = planner.Plan("Why is SO-456 delayed?");
+        var calls = await planner.PlanAsync("Why is SO-456 delayed?", CancellationToken.None);
 
         var call = Assert.Single(calls);
         Assert.Equal("ExplainOrderException", call.Name);
@@ -442,6 +507,244 @@ public class OpenAiClientLoggingTests
     }
 }
 
+public class OpenAiClientRequestTests
+{
+    [Fact]
+    public async Task PlanToolsAsync_SendsNonStoredStrictClosedToolSchemas()
+    {
+        string? requestJson = null;
+        using var handler = new CapturingHandler(async request =>
+        {
+            requestJson = await request.Content!.ReadAsStringAsync();
+            return JsonResponse("""{"output":[]}""");
+        });
+        using var client = new HttpClient(handler);
+        var openAiClient = new HttpOpenAiClient(client);
+
+        _ = await openAiClient.PlanToolsAsync(
+            "hello",
+            new OpenAiPlannerSettings { ApiKey = "demo-key" },
+            CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(Assert.IsType<string>(requestJson));
+        var root = payload.RootElement;
+        Assert.Equal("gpt-5-mini", root.GetProperty("model").GetString());
+        Assert.Equal("hello", root.GetProperty("input").GetString());
+        Assert.Equal("auto", root.GetProperty("tool_choice").GetString());
+        Assert.False(root.GetProperty("store").GetBoolean());
+
+        var tools = root.GetProperty("tools").EnumerateArray().ToArray();
+        Assert.Equal(3, tools.Length);
+        Assert.All(tools, static tool => Assert.Equal("function", tool.GetProperty("type").GetString()));
+
+        var inventory = GetTool(tools, "GetInventoryAvailability");
+        AssertExactPropertyTypes(
+            inventory.GetProperty("parameters"),
+            new Dictionary<string, string>
+            {
+                ["itemId"] = "string",
+                ["warehouseId"] = "string"
+            });
+
+        var draft = GetTool(tools, "CreateDraftSalesOrder");
+        AssertExactPropertyTypes(
+            draft.GetProperty("parameters"),
+            new Dictionary<string, string>
+            {
+                ["customerId"] = "string",
+                ["requestedDate"] = "string",
+                ["idempotencyKey"] = "string",
+                ["lines"] = "array"
+            });
+        AssertExactPropertyTypes(
+            draft.GetProperty("parameters").GetProperty("properties").GetProperty("lines").GetProperty("items"),
+            new Dictionary<string, string>
+            {
+                ["item"] = "string",
+                ["qty"] = "integer",
+                ["unitPrice"] = "number"
+            });
+
+        var exception = GetTool(tools, "ExplainOrderException");
+        AssertExactPropertyTypes(
+            exception.GetProperty("parameters"),
+            new Dictionary<string, string> { ["orderId"] = "string" });
+
+        foreach (var tool in tools)
+        {
+            Assert.True(tool.GetProperty("strict").GetBoolean());
+            AssertClosedStrictObjectSchema(tool.GetProperty("parameters"));
+        }
+    }
+
+    [Fact]
+    public async Task SummarizeOrderExceptionAsync_DisablesResponseStorage()
+    {
+        string? requestJson = null;
+        using var handler = new CapturingHandler(async request =>
+        {
+            requestJson = await request.Content!.ReadAsStringAsync();
+            return JsonResponse("""{"output_text":"summary"}""");
+        });
+        using var client = new HttpClient(handler);
+        var openAiClient = new HttpOpenAiClient(client);
+
+        _ = await openAiClient.SummarizeOrderExceptionAsync(
+            "SO-456",
+            "BACKORDER",
+            new Dictionary<string, object>(),
+            new OpenAiPlannerSettings { ApiKey = "demo-key", EnableSummarization = true },
+            CancellationToken.None);
+
+        using var payload = JsonDocument.Parse(Assert.IsType<string>(requestJson));
+        Assert.False(payload.RootElement.GetProperty("store").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PlanToolsAsync_CancelsInFlightOutboundRequest()
+    {
+        using var handler = new CancellationObservingHandler();
+        using var client = new HttpClient(handler);
+        var openAiClient = new HttpOpenAiClient(client);
+        using var cts = new CancellationTokenSource();
+
+        var planning = openAiClient.PlanToolsAsync(
+            "hello",
+            new OpenAiPlannerSettings { ApiKey = "demo-key" },
+            cts.Token);
+        await handler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => planning);
+        await handler.CancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task PlanToolsAsync_CancellationDuringRetryDelay_PreventsAnotherAttempt()
+    {
+        using var handler = new RetryableResponseHandler();
+        using var client = new HttpClient(handler);
+        var openAiClient = new HttpOpenAiClient(client);
+        using var cts = new CancellationTokenSource();
+
+        var planning = openAiClient.PlanToolsAsync(
+            "hello",
+            new OpenAiPlannerSettings { ApiKey = "demo-key" },
+            cts.Token);
+        await handler.FirstResponseSent.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => planning);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    private static void AssertClosedStrictObjectSchema(JsonElement schema)
+    {
+        Assert.Equal("object", schema.GetProperty("type").GetString());
+        Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+
+        var propertyNames = schema.GetProperty("properties")
+            .EnumerateObject()
+            .Select(static property => property.Name)
+            .Order()
+            .ToArray();
+        var requiredNames = schema.GetProperty("required")
+            .EnumerateArray()
+            .Select(static item => item.GetString())
+            .Order()
+            .ToArray();
+        Assert.Equal(propertyNames, requiredNames);
+
+        foreach (var property in schema.GetProperty("properties").EnumerateObject())
+        {
+            if (property.Value.TryGetProperty("type", out var type)
+                && type.ValueKind == JsonValueKind.String
+                && type.GetString() == "object")
+            {
+                AssertClosedStrictObjectSchema(property.Value);
+            }
+
+            if (property.Value.TryGetProperty("items", out var items)
+                && items.TryGetProperty("type", out var itemType)
+                && itemType.GetString() == "object")
+            {
+                AssertClosedStrictObjectSchema(items);
+            }
+        }
+    }
+
+    private static JsonElement GetTool(JsonElement[] tools, string name)
+    {
+        return Assert.Single(tools, tool => tool.GetProperty("name").GetString() == name);
+    }
+
+    private static void AssertExactPropertyTypes(
+        JsonElement schema,
+        IReadOnlyDictionary<string, string> expectedTypes)
+    {
+        var properties = schema.GetProperty("properties");
+        Assert.Equal(expectedTypes.Count, properties.EnumerateObject().Count());
+        foreach (var expected in expectedTypes)
+        {
+            Assert.Equal(expected.Value, properties.GetProperty(expected.Key).GetProperty("type").GetString());
+        }
+    }
+
+    private static HttpResponseMessage JsonResponse(string json)
+    {
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+
+    private sealed class CapturingHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> responder) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return responder(request);
+        }
+    }
+
+    private sealed class CancellationObservingHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource CancellationObserved { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("unreachable");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CancellationObserved.TrySetResult();
+                throw;
+            }
+        }
+    }
+
+    private sealed class RetryableResponseHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource FirstResponseSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int CallCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            FirstResponseSent.TrySetResult();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        }
+    }
+}
+
 internal sealed class StubOpenAiClient(IReadOnlyList<ToolCall> calls, string? summary = null) : IOpenAiClient
 {
     public Task<IReadOnlyList<ToolCall>> PlanToolsAsync(string message, OpenAiPlannerSettings settings, CancellationToken ct)
@@ -475,6 +778,45 @@ internal sealed class ThrowingOpenAiClient : IOpenAiClient
         CancellationToken ct)
     {
         throw new InvalidOperationException("simulated openai failure");
+    }
+}
+
+internal sealed class CancellationAwareOpenAiClient : IOpenAiClient
+{
+    public TaskCompletionSource PlanStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource SummaryStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<IReadOnlyList<ToolCall>> PlanToolsAsync(
+        string message,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
+    {
+        PlanStarted.TrySetResult();
+        await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        return Array.Empty<ToolCall>();
+    }
+
+    public async Task<string?> SummarizeOrderExceptionAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        OpenAiPlannerSettings settings,
+        CancellationToken ct)
+    {
+        SummaryStarted.TrySetResult();
+        await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        return null;
+    }
+}
+
+internal sealed class CountingPlanner : IAiPlanner
+{
+    public int CallCount { get; private set; }
+
+    public Task<IReadOnlyList<ToolCall>> PlanAsync(string message, CancellationToken ct)
+    {
+        CallCount++;
+        return Task.FromResult<IReadOnlyList<ToolCall>>(Array.Empty<ToolCall>());
     }
 }
 

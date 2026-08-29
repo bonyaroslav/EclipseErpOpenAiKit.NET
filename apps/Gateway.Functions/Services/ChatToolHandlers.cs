@@ -134,7 +134,7 @@ public sealed class ExplainOrderExceptionToolHandler(
 
         var context = await erp.GetOrderExceptionContextAsync(orderId, ct);
         var governedData = BuildGovernedOrderExceptionData(context.Data, redactor);
-        var summary = summarizer.Summarize(context.OrderId, context.SummaryCode, governedData);
+        var summary = await summarizer.SummarizeAsync(context.OrderId, context.SummaryCode, governedData, ct);
         var answer = ChatResponseText.OrderExceptionSummary(context.OrderId, context.SummaryCode, summary);
 
         var evidence = new List<Evidence>();

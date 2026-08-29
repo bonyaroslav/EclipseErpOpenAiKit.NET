@@ -60,6 +60,8 @@ Without a usable OpenAI configuration, `PlannerFactory` selects `FakePlanner`. I
 - `ERP_MODE=infor` selects the Infor-shaped OAuth2 and typed HTTP connector path.
 - The default ERP path calls the local mock ERP over HTTP.
 
+Real OpenAI requests explicitly disable response storage and use strict, closed tool schemas. Planning and optional summarization are asynchronous and propagate request cancellation through retries and outbound calls without converting cancellation into deterministic fallback.
+
 ## Architecture
 
 ```mermaid
@@ -130,7 +132,6 @@ The included Infor path proves token acquisition, caching, bearer headers, corre
 
 ## Partial capabilities and current limitations
 
-- **Real OpenAI planning exists but is not yet hardened for unattended real-ERP writes.** Strict tool schemas, explicit response-retention settings, end-to-end cancellation, and asynchronous orchestration are modernization work tracked in [plan.md](plan.md).
 - **Real-ERP draft approval is not implemented.** The current policy requires draft posture and idempotency, but it does not yet obtain trusted approval or bind customer identity to verified server state.
 - **Persistence is local.** Audit and idempotency records are file-based examples, not durable distributed storage.
 - **The Infor contract is intentionally narrow.** It covers only the three demonstrated operations and is not a general Eclipse or Infor SDK.
@@ -152,13 +153,11 @@ These boundaries keep the example focused on governed execution rather than broa
 
 ## Future proposals
 
-The focused modernization order is recorded in [plan.md](plan.md):
+The focused modernization order is recorded in [plan.md](plan.md). The truthful baseline and real OpenAI hardening are complete; remaining delivery is:
 
-1. publish this truthful baseline
-2. harden real OpenAI request schemas, retention, async behavior, and cancellation
-3. fail closed for real-ERP draft writes and require trusted approval
-4. bind draft customer identity to verified request-scoped context
-5. prove the complete offline workflow in CI and containers
+1. fail closed for real-ERP draft writes and require trusted approval
+2. bind draft customer identity to verified request-scoped context
+3. prove the complete offline workflow in CI and containers
 
 A **bounded tool-result loop**—returning tool results to the model for another constrained planning step—remains an explicit deferred design decision. It is not implemented or implied by the current single-pass orchestrator.
 

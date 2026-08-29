@@ -2,17 +2,27 @@ namespace EclipseAi.AI;
 
 public sealed class NoopOrderExceptionSummarizer : IOrderExceptionSummarizer
 {
-    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    public Task<string?> SummarizeAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        CancellationToken ct)
     {
-        return null;
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<string?>(null);
     }
 }
 
 public sealed class DeterministicOrderExceptionSummarizer : IOrderExceptionSummarizer
 {
-    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    public Task<string?> SummarizeAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        CancellationToken ct)
     {
-        return BuildDefaultSummary(orderId, summaryCode);
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult<string?>(BuildDefaultSummary(orderId, summaryCode));
     }
 
     internal static string BuildDefaultSummary(string orderId, string summaryCode)
@@ -23,16 +33,25 @@ public sealed class DeterministicOrderExceptionSummarizer : IOrderExceptionSumma
 
 public sealed class OpenAiOrderExceptionSummarizer(IOpenAiClient client, OpenAiPlannerSettings settings) : IOrderExceptionSummarizer
 {
-    public string? Summarize(string orderId, string summaryCode, IReadOnlyDictionary<string, object> data)
+    public async Task<string?> SummarizeAsync(
+        string orderId,
+        string summaryCode,
+        IReadOnlyDictionary<string, object> data,
+        CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         try
         {
-            return client.SummarizeOrderExceptionAsync(orderId, summaryCode, data, settings, CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
+            return await client.SummarizeOrderExceptionAsync(orderId, summaryCode, data, settings, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
+            ct.ThrowIfCancellationRequested();
             return DeterministicOrderExceptionSummarizer.BuildDefaultSummary(orderId, summaryCode);
         }
     }
