@@ -38,3 +38,17 @@ For changes that touch >2 modules or are likely >1 day:
 - Demo + E2E path in **plan.md** still works (do not break the command interface)
 - No unused abstractions
 - README/plan updated if public behavior changes
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs use local Markdown under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Workflow states use the default lightweight vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. See `docs/agents/domain.md`.
